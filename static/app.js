@@ -13,7 +13,6 @@ const flairTermsInput = document.getElementById("flairTerms");
 const nsfwChk = document.getElementById("nsfw");
 
 const randomBtn = document.getElementById("randomBtn");
-const shareBtn  = document.getElementById("share");
 
 const speakBtn = document.getElementById("speak");
 const pauseBtn = document.getElementById("pause");
@@ -22,6 +21,15 @@ const voteYTA = document.getElementById("voteYTA");
 const voteNTA = document.getElementById("voteNTA");
 const voteESH = document.getElementById("voteESH");
 const tallyEl = document.getElementById("tally");
+
+// Share buttons
+const shareNativeBtn  = document.getElementById("shareNative");
+const shareCopyBtn    = document.getElementById("shareCopy");
+const shareWhatsBtn   = document.getElementById("shareWhatsApp");
+const shareFbBtn      = document.getElementById("shareFacebook");
+const shareXBtn       = document.getElementById("shareX");
+const shareRedditBtn  = document.getElementById("shareReddit");
+const shareSMSBtn     = document.getElementById("shareSMS");
 
 const synth = window.speechSynthesis;
 
@@ -50,25 +58,35 @@ function qs() {
   return p.toString();
 }
 
-function updateMeta(post, revealVerdict = false) {
-  const base = `r/${post.subreddit}`;
-  const flair = post.display_flair && !revealVerdict ? ` • flair: ${post.display_flair}` : "";
-  const verdict = revealVerdict && post.verdict_flair ? ` • verdict: ${post.verdict_flair}` : "";
+// Before voting: show nothing but subreddit (+ NSFW marker)
+// After voting: show verdict flair or "No verdict yet"
+function setMetaPreVote(post) {
   const nsfw = post.over_18 ? " • NSFW" : "";
-  metaEl.textContent = `${base}${flair}${verdict}${nsfw}`;
+  metaEl.textContent = `r/${post.subreddit}${nsfw}`;
 }
 
-function updateView(post) {
+function setMetaPostVote(post) {
+  const verdictText = post.flair ? post.flair : "No verdict yet";
+  const nsfw = post.over_18 ? " • NSFW" : "";
+  metaEl.textContent = `r/${post.subreddit} • verdict: ${verdictText}${nsfw}`;
+}
+
+function updateView(post, yourVote=null) {
   currentPost = post;
   titleEl.textContent = post.title || "(no title)";
   textEl.textContent  = post.text || "";
-  updateMeta(post, /*revealVerdict*/ false);
   openEl.href = post.permalink || "#";
   tallyEl.textContent = "(no votes yet)";
-  fetchResults(); // pull current tally if any
+
+  if (yourVote) {
+    setMetaPostVote(post);
+  } else {
+    setMetaPreVote(post);
+  }
+
+  fetchResults(); // get tallies & reveal if already voted this session
 }
 
-// ---------- Fetch ----------
 async function fetchRandom() {
   setLoading(true);
   stopSpeech();
@@ -80,8 +98,8 @@ async function fetchRandom() {
       else setError(data.error || `HTTP ${res.status}`);
       return;
     }
-    const { post } = await res.json();
-    updateView(post);
+    const { post, your_vote } = await res.json();
+    updateView(post, your_vote);
   } catch (e) {
     setError(String(e));
   } finally {
@@ -89,7 +107,7 @@ async function fetchRandom() {
   }
 }
 
-// ---------- Voting ----------
+// ---------- Voting (one vote per story) ----------
 async function vote(which) {
   if (!currentPost?.id) return;
   try {
@@ -99,18 +117,31 @@ async function vote(which) {
       body: JSON.stringify({ post_id: currentPost.id, vote: which })
     });
     const data = await res.json();
+
+    // Handle "already voted" gracefully (HTTP 200 with ok:false)
+    if (!data.ok && data.error === "already_voted") {
+      const y = data.counts?.YTA || 0;
+      const n = data.counts?.NTA || 0;
+      const e = data.counts?.ESH || 0;
+      const yours = data.your_vote ? ` • you already voted: ${data.your_vote}` : "";
+      tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
+      setMetaPostVote(currentPost); // reveal verdict or "No verdict yet"
+      setError("You can only vote once for this story.");
+      setTimeout(() => setError(""), 2000);
+      return;
+    }
+
     if (!res.ok || !data.ok) {
       setError(data.error || `Vote failed (HTTP ${res.status})`);
       return;
     }
+
     const y = data.counts?.YTA || 0;
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
     const yours = data.your_vote ? ` • you voted: ${data.your_vote}` : "";
     tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
-
-    // Reveal verdict flair (if any) after user votes
-    updateMeta(currentPost, /*revealVerdict*/ true);
+    setMetaPostVote(currentPost); // reveal verdict or "No verdict yet"
   } catch (err) {
     setError(String(err));
   }
@@ -127,7 +158,7 @@ async function fetchResults() {
     const e = data.counts?.ESH || 0;
     const yours = data.your_vote ? ` • you voted: ${data.your_vote}` : "";
     if (y + n + e > 0) tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
-    if (data.your_vote) updateMeta(currentPost, /*revealVerdict*/ true); // reveal if already voted
+    if (data.your_vote) setMetaPostVote(currentPost);
   } catch {}
 }
 
@@ -140,7 +171,7 @@ function stopSpeech() {
 
 function readAloud() {
   if (!currentPost) return;
-  stopSpeech(); // cancel anything in progress
+  stopSpeech();
   const u = new SpeechSynthesisUtterance(`${currentPost.title}. ${currentPost.text}`);
   synth.speak(u);
   paused = false;
@@ -159,18 +190,63 @@ function pauseOrResume() {
   }
 }
 
-// ---------- Events ----------
-randomBtn.addEventListener("click", fetchRandom);
-shareBtn.addEventListener("click", async () => {
-  if (!currentPost?.permalink) return;
+// ---------- Sharing ----------
+function shareTextAndUrl() {
+  const url = currentPost?.permalink || window.location.href;
+  const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this AITA story`;
+  return { text, url };
+}
+
+async function nativeShare() {
+  const { text, url } = shareTextAndUrl();
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: text, text, url });
+      setError("Shared!");
+      setTimeout(() => setError(""), 1500);
+      return;
+    } catch {}
+  }
+  await copyLink();
+}
+
+async function copyLink() {
+  const { url } = shareTextAndUrl();
   try {
-    await navigator.clipboard.writeText(currentPost.permalink);
+    await navigator.clipboard.writeText(url);
     setError("Link copied to clipboard!");
     setTimeout(() => setError(""), 1500);
   } catch {
     setError("Could not copy link.");
   }
-});
+}
+
+function openShare(url) {
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+function shareWhatsApp() {
+  const { text, url } = shareTextAndUrl();
+  openShare(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`);
+}
+function shareFacebook() {
+  const { url } = shareTextAndUrl();
+  openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
+}
+function shareX() {
+  const { text, url } = shareTextAndUrl();
+  openShare(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
+}
+function shareReddit() {
+  const { text, url } = shareTextAndUrl();
+  openShare(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`);
+}
+function shareSMS() {
+  const { text, url } = shareTextAndUrl();
+  window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`;
+}
+
+// ---------- Events ----------
+randomBtn.addEventListener("click", fetchRandom);
 
 speakBtn.addEventListener("click", readAloud);
 pauseBtn.addEventListener("click", pauseOrResume);
@@ -183,6 +259,14 @@ sortSel.addEventListener("change", () => {
 voteYTA.addEventListener("click", () => vote("YTA"));
 voteNTA.addEventListener("click", () => vote("NTA"));
 voteESH.addEventListener("click", () => vote("ESH"));
+
+shareNativeBtn.addEventListener("click", nativeShare);
+shareCopyBtn.addEventListener("click", copyLink);
+shareWhatsBtn.addEventListener("click", shareWhatsApp);
+shareFbBtn.addEventListener("click", shareFacebook);
+shareXBtn.addEventListener("click", shareX);
+shareRedditBtn.addEventListener("click", shareReddit);
+shareSMSBtn.addEventListener("click", shareSMS);
 
 // Initial UI state
 rangeSel.style.display = "none";

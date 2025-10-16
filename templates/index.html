@@ -12,7 +12,7 @@
     main { max-width: 900px; margin: 32px auto; padding: 0 16px; }
     header { display: grid; gap: var(--gap); margin-bottom: 16px; }
     .controls, .controls2 { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
-    .row { display: flex; gap: var(--gap); align-items: center; }
+    .row { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
     .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 16px; padding: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.03); }
     h1 { font-size: 1.6rem; margin: 0; }
     h2 { font-size: 1.25rem; margin-top: 0; }
@@ -27,6 +27,7 @@
     .vote .tally { color: #333; font-size: .95rem; }
     .muted { color:#666; }
     .toggle { display:flex; align-items:center; gap:6px; }
+    .share-row button { font-size: .95rem; }
   </style>
 </head>
 <body>
@@ -78,7 +79,6 @@
         <button id="pause">⏸️ Pause</button>
       </div>
       <div class="row">
-        <button id="share">🔗 Copy Link</button>
         <a id="openLink" target="_blank" rel="noopener"><button>Open on Reddit</button></a>
       </div>
     </div>
@@ -97,6 +97,17 @@
       <button id="voteESH">Everyone Sucks Here (ESH)</button>
       <span class="tally" id="tally">(no votes yet)</span>
     </div>
+
+    <div class="row share-row" style="margin-top:14px;">
+      <button id="shareNative">📱 Share</button>
+      <button id="shareCopy">🔗 Copy Link</button>
+      <button id="shareWhatsApp">🟢 WhatsApp</button>
+      <button id="shareFacebook">🔵 Facebook</button>
+      <button id="shareX">✖️ X</button>
+      <button id="shareReddit">🟠 Reddit</button>
+      <button id="shareSMS">💬 Text</button>
+    </div>
+    <div class="muted" style="margin-top:6px;">Tip: Instagram doesn’t accept web shares. Use “📱 Share” or “🔗 Copy Link” and paste in Instagram.</div>
   </article>
 </main>
 
