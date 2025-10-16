@@ -250,6 +250,11 @@ document.addEventListener("click", () => {
   shareMenu.style.display = "none";
 });
 
+// ---------- Auto-load a random story on first page load ----------
+window.addEventListener("DOMContentLoaded", () => {
+  fetchRandom();
+});
+
 // Initial UI state
 rangeSel.style.display = "none";
 setError("");
