@@ -1,4 +1,4 @@
-import os, time, random, threading, re, sqlite3, tempfile
+import os, time, random, threading, sqlite3, tempfile
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, session
 import requests
@@ -21,10 +21,9 @@ API_BASE = "https://oauth.reddit.com"
 SUBREDDIT = "AmItheAsshole"
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
-app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(24))  # for per-session vote lock
+app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(24))  # per-session vote lock
 
-# ---------- SQLite (persistent votes) ----------
-# Use env var for mounted disk in prod; fall back to temp (works on Render Free)
+# ---------- SQLite (votes) ----------
 DB_PATH = os.environ.get("VOTES_DB_PATH", os.path.join(tempfile.gettempdir(), "votes.db"))
 _db_lock = Lock()
 
@@ -38,7 +37,7 @@ def init_db():
                 esh INTEGER NOT NULL DEFAULT 0
             )
         """)
-        # ensure columns exist (migrations)
+        # ensure cols exist
         cols = {row[1] for row in conn.execute("PRAGMA table_info(votes)").fetchall()}
         if "esh" not in cols:
             conn.execute("ALTER TABLE votes ADD COLUMN esh INTEGER NOT NULL DEFAULT 0")
@@ -62,7 +61,6 @@ def db_get_counts(post_id):
         return {"YTA": int(row[0]), "NTA": int(row[1]), "ESH": int(row[2])}
 
 def db_apply_vote_once(post_id, to_vote):
-    """Create row if missing and increment exactly one bucket (no changes allowed afterwards)."""
     with db() as conn:
         conn.execute("INSERT OR IGNORE INTO votes (post_id, yta, nta, esh) VALUES (?, 0, 0, 0)", (post_id,))
         if to_vote == "YTA":
@@ -76,7 +74,7 @@ def db_apply_vote_once(post_id, to_vote):
 
 # ---------- Reddit auth & fetch ----------
 POST_CACHE = {}
-CACHE_TTL = 600  # 10 minutes
+CACHE_TTL = 600  # 10 min
 
 def get_access_token():
     tok = POST_CACHE.get("_token")
@@ -105,9 +103,9 @@ def api_get(path, params=None):
 def normalize(item):
     d = item.get("data", {})
     title = (d.get("title") or "").strip()
-    text = (d.get("selftext") or "").strip()
+    text  = (d.get("selftext") or "").strip()
     flair_raw = (d.get("link_flair_text") or "").strip() or None
-    if not d.get("is_self"):  # only text posts
+    if not d.get("is_self"):
         return None
     if not title or len(text) < 80:
         return None
@@ -117,7 +115,7 @@ def normalize(item):
         "text": text,
         "permalink": "https://www.reddit.com" + (d.get("permalink") or ""),
         "subreddit": d.get("subreddit") or SUBREDDIT,
-        "flair": flair_raw,           # raw flair from Reddit (may be None)
+        "flair": flair_raw,
         "over_18": bool(d.get("over_18")),
         "created_utc": d.get("created_utc"),
     }
@@ -132,29 +130,25 @@ def fetch_posts(sort="hot", t=None):
     if sort == "top" and t:
         params["t"] = t
     j = api_get(f"/r/{SUBREDDIT}/{sort}", params=params)
-    collected = []
+    posts = []
     for c in j.get("data", {}).get("children", []):
         norm = normalize(c)
         if norm:
-            collected.append(norm)
-    random.shuffle(collected)
-    POST_CACHE[key] = {"posts": collected, "ts": now}
-    return collected
+            posts.append(norm)
+    random.shuffle(posts)
+    POST_CACHE[key] = {"posts": posts, "ts": now}
+    return posts
 
-def apply_filters(posts, include_nsfw=False, flair_mode=None, flair_terms=None):
+def apply_filters(posts, include_nsfw=False, search_q=None):
     results = []
-    terms = [t.strip().lower() for t in (flair_terms or []) if t.strip()]
+    q = (search_q or "").strip().lower()
     for p in posts:
         if not include_nsfw and p.get("over_18"):
             continue
-        flair_lower = (p.get("flair") or "").lower()
-        if terms:
-            if flair_mode == "include":
-                if not any(term in flair_lower for term in terms):
-                    continue
-            elif flair_mode == "exclude":
-                if any(term in flair_lower for term in terms):
-                    continue
+        if q:
+            hay = f"{p.get('title','')} {p.get('text','')}".lower()
+            if q not in hay:
+                continue
         results.append(p)
     return results
 
@@ -169,17 +163,14 @@ def api_random():
         sort = request.args.get("sort", "hot")
         t = request.args.get("t") if sort == "top" else None
         include_nsfw = request.args.get("nsfw", "0") in ("1", "true", "True")
-        flair_mode = request.args.get("flair_mode")
-        flairs = request.args.get("flairs", "")
-        flair_terms = [s for s in flairs.split(",")] if flairs else []
+        search_q = request.args.get("q", "").strip()
 
         posts = fetch_posts(sort=sort, t=t)
-        posts = apply_filters(posts, include_nsfw=include_nsfw, flair_mode=flair_mode, flair_terms=flair_terms)
+        posts = apply_filters(posts, include_nsfw=include_nsfw, search_q=search_q)
         if not posts:
-            return jsonify({"error": "no_posts", "message": "No posts matched your filters. Try relaxing them."}), 404
+            return jsonify({"error": "no_posts", "message": "No posts matched your filters. Try different search or sort."}), 404
 
         post = random.choice(posts)
-        # also return whether user already voted this session
         your_vote = session.get("voted", {}).get(post["id"])
         return jsonify({"post": post, "your_vote": your_vote})
     except Exception as e:
@@ -194,16 +185,20 @@ def api_vote():
         if vote not in ("YTA", "NTA", "ESH") or not post_id:
             return jsonify({"ok": False, "error": "invalid_vote"}), 400
 
-        session.setdefault("voted", {})
-        prev = session["voted"].get(post_id)
-        counts = db_get_counts(post_id)
+        # IMPORTANT: copy -> mutate -> assign back so Flask saves cookie
+        voted = dict(session.get("voted", {}))
+        prev = voted.get(post_id)
 
-        # Enforce ONE vote per story per session (no changes)
+        counts = db_get_counts(post_id)
         if prev:
+            # already voted this story in this session
             return jsonify({"ok": False, "error": "already_voted", "counts": counts, "your_vote": prev}), 200
 
         counts = db_apply_vote_once(post_id, vote)
-        session["voted"][post_id] = vote
+        voted[post_id] = vote
+        session["voted"] = voted           # <-- assign back
+        session.modified = True            # <-- ensure cookie is updated
+
         return jsonify({"ok": True, "counts": counts, "your_vote": vote})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -225,7 +220,7 @@ def warm_start():
     except Exception as e:
         print("Warm start warning:", e)
 
-# Ensure DB exists when running under gunicorn (import-time init)
+# Ensure DB exists for gunicorn/import
 try:
     init_db()
 except Exception as e:
