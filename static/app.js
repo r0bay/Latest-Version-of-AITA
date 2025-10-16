@@ -6,9 +6,9 @@ const errorEl = document.getElementById("error");
 const openEl  = document.getElementById("openLink");
 const spinner = document.getElementById("spinner");
 
-const sortSel = document.getElementById("sort");
-const rangeSel = document.getElementById("topRange");
-const nsfwChk = document.getElementById("nsfw");
+const sortSel   = document.getElementById("sort");
+const rangeSel  = document.getElementById("topRange");
+const nsfwChk   = document.getElementById("nsfw");
 const searchBox = document.getElementById("searchBox");
 
 const randomBtn = document.getElementById("randomBtn");
@@ -23,7 +23,7 @@ const tallyEl = document.getElementById("tally");
 
 // Share dropdown
 const shareToggle = document.getElementById("shareToggle");
-const shareMenu = document.getElementById("shareMenu");
+const shareMenu   = document.getElementById("shareMenu");
 
 const synth = window.speechSynthesis;
 
@@ -51,13 +51,13 @@ function qs() {
   return p.toString();
 }
 
-// Before voting: show nothing (except NSFW marker, if any)
-// After voting: show "Verdict: <flair or No verdict yet>"
+// Before voting: show nothing (except NSFW marker)
 function setMetaPreVote(post) {
   const nsfw = post.over_18 ? "NSFW" : "";
   metaEl.textContent = nsfw;
 }
 
+// After voting: show "Verdict: <flair or No verdict yet>"
 function setMetaPostVote(post) {
   const verdictText = post.flair ? post.flair : "No verdict yet";
   const nsfw = post.over_18 ? " • NSFW" : "";
@@ -110,8 +110,8 @@ async function vote(which) {
       const y = data.counts?.YTA || 0;
       const n = data.counts?.NTA || 0;
       const e = data.counts?.ESH || 0;
-      const yours = data.your_vote ? ` • you already voted: ${data.your_vote}` : "";
-      tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
+      // No "you voted" text anymore:
+      tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
       setMetaPostVote(currentPost);
       setError("You can only vote once for this story.");
       setTimeout(() => setError(""), 2000);
@@ -126,8 +126,7 @@ async function vote(which) {
     const y = data.counts?.YTA || 0;
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
-    const yours = data.your_vote ? ` • you voted: ${data.your_vote}` : "";
-    tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
+    tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
     setMetaPostVote(currentPost);
   } catch (err) {
     setError(String(err));
@@ -143,8 +142,8 @@ async function fetchResults() {
     const y = data.counts?.YTA || 0;
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
-    const yours = data.your_vote ? ` • you voted: ${data.your_vote}` : "";
-    if (y + n + e > 0) tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
+    // No "you voted" text here either:
+    if (y + n + e > 0) tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
     if (data.your_vote) setMetaPostVote(currentPost);
   } catch {}
 }
@@ -226,7 +225,7 @@ sortSel.addEventListener("change", () => {
   rangeSel.style.display = isTop ? "inline-block" : "none";
 });
 
-// Let Enter in the search box trigger a new random with that query
+// Press Enter in search to fetch with that query
 searchBox.addEventListener("keydown", (e) => {
   if (e.key === "Enter") fetchRandom();
 });
@@ -250,7 +249,7 @@ document.addEventListener("click", () => {
   shareMenu.style.display = "none";
 });
 
-// ---------- Auto-load a random story on first page load ----------
+// ---------- Auto-load first story ----------
 window.addEventListener("DOMContentLoaded", () => {
   fetchRandom();
 });

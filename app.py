@@ -9,22 +9,22 @@ from threading import Lock
 load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+STATIC_DIR   = os.path.join(BASE_DIR, "static")
 
-CLIENT_ID = os.environ["REDDIT_CLIENT_ID"]
+CLIENT_ID     = os.environ["REDDIT_CLIENT_ID"]
 CLIENT_SECRET = os.environ["REDDIT_CLIENT_SECRET"]
-USER_AGENT = os.environ.get("USER_AGENT", "web:aita-random:0.1 (by /u/unknown)")
-PORT = int(os.environ.get("PORT", "8080"))
+USER_AGENT    = os.environ.get("USER_AGENT", "web:aita-random:0.1 (by /u/unknown)")
+PORT          = int(os.environ.get("PORT", "8080"))
 
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
-API_BASE = "https://oauth.reddit.com"
+API_BASE  = "https://oauth.reddit.com"
 SUBREDDIT = "AmItheAsshole"
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(24))  # per-session vote lock
 
 # ---------- SQLite (votes) ----------
-DB_PATH = os.environ.get("VOTES_DB_PATH", os.path.join(tempfile.gettempdir(), "votes.db"))
+DB_PATH  = os.environ.get("VOTES_DB_PATH", os.path.join(tempfile.gettempdir(), "votes.db"))
 _db_lock = Lock()
 
 def init_db():
@@ -37,7 +37,7 @@ def init_db():
                 esh INTEGER NOT NULL DEFAULT 0
             )
         """)
-        # ensure cols exist
+        # ensure columns exist
         cols = {row[1] for row in conn.execute("PRAGMA table_info(votes)").fetchall()}
         if "esh" not in cols:
             conn.execute("ALTER TABLE votes ADD COLUMN esh INTEGER NOT NULL DEFAULT 0")
@@ -74,7 +74,7 @@ def db_apply_vote_once(post_id, to_vote):
 
 # ---------- Reddit auth & fetch ----------
 POST_CACHE = {}
-CACHE_TTL = 600  # 10 min
+CACHE_TTL  = 600  # 10 min
 
 def get_access_token():
     tok = POST_CACHE.get("_token")
@@ -90,7 +90,7 @@ def get_access_token():
     return POST_CACHE["_token"]["value"]
 
 def api_get(path, params=None):
-    token = get_access_token()
+    token   = get_access_token()
     headers = {"Authorization": f"bearer {token}", "User-Agent": USER_AGENT}
     r = requests.get(API_BASE + path, headers=headers, params=params or {}, timeout=30)
     try:
@@ -115,7 +115,7 @@ def normalize(item):
         "text": text,
         "permalink": "https://www.reddit.com" + (d.get("permalink") or ""),
         "subreddit": d.get("subreddit") or SUBREDDIT,
-        "flair": flair_raw,
+        "flair": flair_raw,       # raw Reddit flair (may be None)
         "over_18": bool(d.get("over_18")),
         "created_utc": d.get("created_utc"),
     }
@@ -161,9 +161,9 @@ def index():
 def api_random():
     try:
         sort = request.args.get("sort", "hot")
-        t = request.args.get("t") if sort == "top" else None
+        t    = request.args.get("t") if sort == "top" else None
         include_nsfw = request.args.get("nsfw", "0") in ("1", "true", "True")
-        search_q = request.args.get("q", "").strip()
+        search_q     = request.args.get("q", "").strip()
 
         posts = fetch_posts(sort=sort, t=t)
         posts = apply_filters(posts, include_nsfw=include_nsfw, search_q=search_q)
@@ -179,27 +179,26 @@ def api_random():
 @app.route("/api/vote", methods=["POST"])
 def api_vote():
     try:
-        data = request.get_json(force=True, silent=False)
+        data    = request.get_json(force=True, silent=False)
         post_id = data.get("post_id")
-        vote = data.get("vote")  # "YTA" | "NTA" | "ESH"
+        vote    = data.get("vote")  # "YTA" | "NTA" | "ESH"
         if vote not in ("YTA", "NTA", "ESH") or not post_id:
             return jsonify({"ok": False, "error": "invalid_vote"}), 400
 
-        # IMPORTANT: copy -> mutate -> assign back so Flask saves cookie
+        # copy -> mutate -> assign back so Flask saves cookie
         voted = dict(session.get("voted", {}))
-        prev = voted.get(post_id)
+        prev  = voted.get(post_id)
 
         counts = db_get_counts(post_id)
         if prev:
-            # already voted this story in this session
-            return jsonify({"ok": False, "error": "already_voted", "counts": counts, "your_vote": prev}), 200
+            return jsonify({"ok": False, "error": "already_voted", "counts": counts}), 200
 
         counts = db_apply_vote_once(post_id, vote)
         voted[post_id] = vote
-        session["voted"] = voted           # <-- assign back
-        session.modified = True            # <-- ensure cookie is updated
+        session["voted"] = voted
+        session.modified = True
 
-        return jsonify({"ok": True, "counts": counts, "your_vote": vote})
+        return jsonify({"ok": True, "counts": counts})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -220,7 +219,6 @@ def warm_start():
     except Exception as e:
         print("Warm start warning:", e)
 
-# Ensure DB exists for gunicorn/import
 try:
     init_db()
 except Exception as e:
