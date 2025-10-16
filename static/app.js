@@ -10,6 +10,7 @@ const sortSel   = document.getElementById("sort");
 const rangeSel  = document.getElementById("topRange");
 const nsfwChk   = document.getElementById("nsfw");
 const searchBox = document.getElementById("searchBox");
+const searchBtn = document.getElementById("searchBtn"); // NEW
 
 const randomBtn = document.getElementById("randomBtn");
 
@@ -29,7 +30,6 @@ const synth = window.speechSynthesis;
 
 // ---------- State ----------
 let currentPost = null;
-let paused = false;
 
 // ---------- Helpers ----------
 function setLoading(isLoading) {
@@ -47,7 +47,7 @@ function qs() {
   if (sortSel.value) p.set("sort", sortSel.value);
   if (sortSel.value === "top" && rangeSel.value) p.set("t", rangeSel.value);
   if (nsfwChk.checked) p.set("nsfw", "1");
-  if (searchBox.value.trim()) p.set("q", searchBox.value.trim());
+  if (searchBox.value.trim()) p.set("q", searchBox.value.trim()); // picks up your search text
   return p.toString();
 }
 
@@ -110,7 +110,6 @@ async function vote(which) {
       const y = data.counts?.YTA || 0;
       const n = data.counts?.NTA || 0;
       const e = data.counts?.ESH || 0;
-      // No "you voted" text anymore:
       tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
       setMetaPostVote(currentPost);
       setError("You can only vote once for this story.");
@@ -142,7 +141,6 @@ async function fetchResults() {
     const y = data.counts?.YTA || 0;
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
-    // No "you voted" text here either:
     if (y + n + e > 0) tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
     if (data.your_vote) setMetaPostVote(currentPost);
   } catch {}
@@ -151,27 +149,21 @@ async function fetchResults() {
 // ---------- Speech ----------
 function stopSpeech() {
   synth.cancel();
-  paused = false;
   pauseBtn.textContent = "⏸️ Pause";
 }
-
 function readAloud() {
   if (!currentPost) return;
   stopSpeech();
   const u = new SpeechSynthesisUtterance(`${currentPost.title}. ${currentPost.text}`);
   synth.speak(u);
-  paused = false;
   pauseBtn.textContent = "⏸️ Pause";
 }
-
 function pauseOrResume() {
   if (synth.speaking && !synth.paused) {
     synth.pause();
-    paused = true;
     pauseBtn.textContent = "▶️ Resume";
   } else if (synth.paused) {
     synth.resume();
-    paused = false;
     pauseBtn.textContent = "⏸️ Pause";
   }
 }
@@ -182,40 +174,34 @@ function shareTextAndUrl() {
   const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this AITA story`;
   return { text, url };
 }
-
 function openShare(url) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
-
 function handleShare(action) {
   const { text, url } = shareTextAndUrl();
   if (!action) return;
-
   switch (action) {
-    case "whatsapp":
-      openShare(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`);
-      break;
-    case "facebook":
-      openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
-      break;
-    case "twitter":
-      openShare(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
-      break;
-    case "reddit":
-      openShare(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`);
-      break;
-    case "sms":
-      window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`;
-      break;
+    case "whatsapp": openShare(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`); break;
+    case "facebook": openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`); break;
+    case "twitter":  openShare(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`); break;
+    case "reddit":   openShare(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`); break;
+    case "sms":      window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`; break;
   }
 }
-
 function toggleShareMenu(show) {
   shareMenu.style.display = show ? "block" : (shareMenu.style.display === "block" ? "none" : "block");
 }
 
 // ---------- Events ----------
 randomBtn.addEventListener("click", fetchRandom);
+
+// NEW: Clicking the Search button triggers a filtered random
+searchBtn.addEventListener("click", fetchRandom);
+
+// Press Enter in the search box also works
+searchBox.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") fetchRandom();
+});
 
 speakBtn.addEventListener("click", readAloud);
 pauseBtn.addEventListener("click", pauseOrResume);
@@ -225,35 +211,24 @@ sortSel.addEventListener("change", () => {
   rangeSel.style.display = isTop ? "inline-block" : "none";
 });
 
-// Press Enter in search to fetch with that query
-searchBox.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") fetchRandom();
-});
-
 voteYTA.addEventListener("click", () => vote("YTA"));
 voteNTA.addEventListener("click", () => vote("NTA"));
 voteESH.addEventListener("click", () => vote("ESH"));
 
-// Share dropdown interactions
 shareToggle.addEventListener("click", (e) => {
-  e.stopPropagation();
-  toggleShareMenu();
+  e.stopPropagation(); toggleShareMenu();
 });
 shareMenu.addEventListener("click", (e) => {
-  const btn = e.target.closest("button");
-  if (!btn) return;
-  handleShare(btn.dataset.share);
-  toggleShareMenu(false);
+  const btn = e.target.closest("button"); if (!btn) return;
+  handleShare(btn.dataset.share); toggleShareMenu(false);
 });
-document.addEventListener("click", () => {
-  shareMenu.style.display = "none";
-});
+document.addEventListener("click", () => { shareMenu.style.display = "none"; });
 
 // ---------- Auto-load first story ----------
 window.addEventListener("DOMContentLoaded", () => {
   fetchRandom();
 });
 
-// Initial UI state
+// Initial UI
 rangeSel.style.display = "none";
 setError("");
