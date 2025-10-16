@@ -8,9 +8,8 @@ const spinner = document.getElementById("spinner");
 
 const sortSel = document.getElementById("sort");
 const rangeSel = document.getElementById("topRange");
-const flairModeSel = document.getElementById("flairMode");
-const flairTermsInput = document.getElementById("flairTerms");
 const nsfwChk = document.getElementById("nsfw");
+const searchBox = document.getElementById("searchBox");
 
 const randomBtn = document.getElementById("randomBtn");
 
@@ -22,14 +21,9 @@ const voteNTA = document.getElementById("voteNTA");
 const voteESH = document.getElementById("voteESH");
 const tallyEl = document.getElementById("tally");
 
-// Share buttons
-const shareNativeBtn  = document.getElementById("shareNative");
-const shareCopyBtn    = document.getElementById("shareCopy");
-const shareWhatsBtn   = document.getElementById("shareWhatsApp");
-const shareFbBtn      = document.getElementById("shareFacebook");
-const shareXBtn       = document.getElementById("shareX");
-const shareRedditBtn  = document.getElementById("shareReddit");
-const shareSMSBtn     = document.getElementById("shareSMS");
+// Share dropdown
+const shareToggle = document.getElementById("shareToggle");
+const shareMenu = document.getElementById("shareMenu");
 
 const synth = window.speechSynthesis;
 
@@ -53,22 +47,21 @@ function qs() {
   if (sortSel.value) p.set("sort", sortSel.value);
   if (sortSel.value === "top" && rangeSel.value) p.set("t", rangeSel.value);
   if (nsfwChk.checked) p.set("nsfw", "1");
-  if (flairModeSel.value) p.set("flair_mode", flairModeSel.value);
-  if (flairTermsInput.value.trim()) p.set("flairs", flairTermsInput.value.trim());
+  if (searchBox.value.trim()) p.set("q", searchBox.value.trim());
   return p.toString();
 }
 
-// Before voting: show nothing but subreddit (+ NSFW marker)
-// After voting: show verdict flair or "No verdict yet"
+// Before voting: show nothing (except NSFW marker, if any)
+// After voting: show "Verdict: <flair or No verdict yet>"
 function setMetaPreVote(post) {
-  const nsfw = post.over_18 ? " • NSFW" : "";
-  metaEl.textContent = `r/${post.subreddit}${nsfw}`;
+  const nsfw = post.over_18 ? "NSFW" : "";
+  metaEl.textContent = nsfw;
 }
 
 function setMetaPostVote(post) {
   const verdictText = post.flair ? post.flair : "No verdict yet";
   const nsfw = post.over_18 ? " • NSFW" : "";
-  metaEl.textContent = `r/${post.subreddit} • verdict: ${verdictText}${nsfw}`;
+  metaEl.textContent = `Verdict: ${verdictText}${nsfw}`;
 }
 
 function updateView(post, yourVote=null) {
@@ -77,16 +70,11 @@ function updateView(post, yourVote=null) {
   textEl.textContent  = post.text || "";
   openEl.href = post.permalink || "#";
   tallyEl.textContent = "(no votes yet)";
-
-  if (yourVote) {
-    setMetaPostVote(post);
-  } else {
-    setMetaPreVote(post);
-  }
-
-  fetchResults(); // get tallies & reveal if already voted this session
+  if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
+  fetchResults();
 }
 
+// ---------- Fetch ----------
 async function fetchRandom() {
   setLoading(true);
   stopSpeech();
@@ -118,14 +106,13 @@ async function vote(which) {
     });
     const data = await res.json();
 
-    // Handle "already voted" gracefully (HTTP 200 with ok:false)
     if (!data.ok && data.error === "already_voted") {
       const y = data.counts?.YTA || 0;
       const n = data.counts?.NTA || 0;
       const e = data.counts?.ESH || 0;
       const yours = data.your_vote ? ` • you already voted: ${data.your_vote}` : "";
       tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
-      setMetaPostVote(currentPost); // reveal verdict or "No verdict yet"
+      setMetaPostVote(currentPost);
       setError("You can only vote once for this story.");
       setTimeout(() => setError(""), 2000);
       return;
@@ -141,7 +128,7 @@ async function vote(which) {
     const e = data.counts?.ESH || 0;
     const yours = data.your_vote ? ` • you voted: ${data.your_vote}` : "";
     tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}${yours}`;
-    setMetaPostVote(currentPost); // reveal verdict or "No verdict yet"
+    setMetaPostVote(currentPost);
   } catch (err) {
     setError(String(err));
   }
@@ -190,59 +177,42 @@ function pauseOrResume() {
   }
 }
 
-// ---------- Sharing ----------
+// ---------- Share dropdown ----------
 function shareTextAndUrl() {
   const url = currentPost?.permalink || window.location.href;
   const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this AITA story`;
   return { text, url };
 }
 
-async function nativeShare() {
-  const { text, url } = shareTextAndUrl();
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: text, text, url });
-      setError("Shared!");
-      setTimeout(() => setError(""), 1500);
-      return;
-    } catch {}
-  }
-  await copyLink();
-}
-
-async function copyLink() {
-  const { url } = shareTextAndUrl();
-  try {
-    await navigator.clipboard.writeText(url);
-    setError("Link copied to clipboard!");
-    setTimeout(() => setError(""), 1500);
-  } catch {
-    setError("Could not copy link.");
-  }
-}
-
 function openShare(url) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
-function shareWhatsApp() {
+
+function handleShare(action) {
   const { text, url } = shareTextAndUrl();
-  openShare(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`);
+  if (!action) return;
+
+  switch (action) {
+    case "whatsapp":
+      openShare(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`);
+      break;
+    case "facebook":
+      openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
+      break;
+    case "twitter":
+      openShare(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
+      break;
+    case "reddit":
+      openShare(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`);
+      break;
+    case "sms":
+      window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`;
+      break;
+  }
 }
-function shareFacebook() {
-  const { url } = shareTextAndUrl();
-  openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
-}
-function shareX() {
-  const { text, url } = shareTextAndUrl();
-  openShare(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
-}
-function shareReddit() {
-  const { text, url } = shareTextAndUrl();
-  openShare(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`);
-}
-function shareSMS() {
-  const { text, url } = shareTextAndUrl();
-  window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`;
+
+function toggleShareMenu(show) {
+  shareMenu.style.display = show ? "block" : (shareMenu.style.display === "block" ? "none" : "block");
 }
 
 // ---------- Events ----------
@@ -256,17 +226,29 @@ sortSel.addEventListener("change", () => {
   rangeSel.style.display = isTop ? "inline-block" : "none";
 });
 
+// Let Enter in the search box trigger a new random with that query
+searchBox.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") fetchRandom();
+});
+
 voteYTA.addEventListener("click", () => vote("YTA"));
 voteNTA.addEventListener("click", () => vote("NTA"));
 voteESH.addEventListener("click", () => vote("ESH"));
 
-shareNativeBtn.addEventListener("click", nativeShare);
-shareCopyBtn.addEventListener("click", copyLink);
-shareWhatsBtn.addEventListener("click", shareWhatsApp);
-shareFbBtn.addEventListener("click", shareFacebook);
-shareXBtn.addEventListener("click", shareX);
-shareRedditBtn.addEventListener("click", shareReddit);
-shareSMSBtn.addEventListener("click", shareSMS);
+// Share dropdown interactions
+shareToggle.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleShareMenu();
+});
+shareMenu.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  handleShare(btn.dataset.share);
+  toggleShareMenu(false);
+});
+document.addEventListener("click", () => {
+  shareMenu.style.display = "none";
+});
 
 // Initial UI state
 rangeSel.style.display = "none";

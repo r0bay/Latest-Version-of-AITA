@@ -25,9 +25,15 @@
     .error { color: #b00020; font-size: .95rem; min-height: 1.2em; }
     .vote { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; margin-top: 12px; }
     .vote .tally { color: #333; font-size: .95rem; }
-    .muted { color:#666; }
     .toggle { display:flex; align-items:center; gap:6px; }
-    .share-row button { font-size: .95rem; }
+    .share-wrap { position: relative; display: inline-block; }
+    .share-menu {
+      position: absolute; top: 105%; left: 0;
+      background: #fff; border: 1px solid #ddd; border-radius: 10px;
+      box-shadow: 0 6px 16px rgba(0,0,0,.08);
+      padding: 8px; display: none; min-width: 180px; z-index: 50;
+    }
+    .share-menu button { display: block; width: 100%; text-align: left; margin: 2px 0; }
   </style>
 </head>
 <body>
@@ -52,14 +58,10 @@
         </select>
       </div>
 
+      <!-- Removed Flair Filter + Include/Exclude -->
       <div class="row">
-        <label>Flair filter</label>
-        <select id="flairMode">
-          <option value="">None</option>
-          <option value="include">Include</option>
-          <option value="exclude">Exclude</option>
-        </select>
-        <input id="flairTerms" type="text" placeholder="e.g. UPDATE,META" />
+        <label for="searchBox">Search</label>
+        <input id="searchBox" type="text" placeholder="keywords in title or text" />
       </div>
 
       <div class="row toggle">
@@ -80,6 +82,18 @@
       </div>
       <div class="row">
         <a id="openLink" target="_blank" rel="noopener"><button>Open on Reddit</button></a>
+
+        <!-- Minimalist Share with dropdown -->
+        <div class="share-wrap">
+          <button id="shareToggle">Share ▾</button>
+          <div class="share-menu" id="shareMenu">
+            <button data-share="whatsapp">🟢 WhatsApp</button>
+            <button data-share="facebook">🔵 Facebook</button>
+            <button data-share="twitter">✖️ Twitter (X)</button>
+            <button data-share="reddit">🟠 Reddit</button>
+            <button data-share="sms">💬 Text/SMS</button>
+          </div>
+        </div>
       </div>
     </div>
   </header>
@@ -97,17 +111,6 @@
       <button id="voteESH">Everyone Sucks Here (ESH)</button>
       <span class="tally" id="tally">(no votes yet)</span>
     </div>
-
-    <div class="row share-row" style="margin-top:14px;">
-      <button id="shareNative">📱 Share</button>
-      <button id="shareCopy">🔗 Copy Link</button>
-      <button id="shareWhatsApp">🟢 WhatsApp</button>
-      <button id="shareFacebook">🔵 Facebook</button>
-      <button id="shareX">✖️ X</button>
-      <button id="shareReddit">🟠 Reddit</button>
-      <button id="shareSMS">💬 Text</button>
-    </div>
-    <div class="muted" style="margin-top:6px;">Tip: Instagram doesn’t accept web shares. Use “📱 Share” or “🔗 Copy Link” and paste in Instagram.</div>
   </article>
 </main>
 
