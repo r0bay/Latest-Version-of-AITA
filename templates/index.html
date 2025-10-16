@@ -5,7 +5,7 @@
   <title>Random AITA — Reader</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- ✅ PWA additions (only these 4 lines were added) -->
+  <!-- PWA hooks (already working) -->
   <link rel="manifest" href="/static/manifest.webmanifest">
   <meta name="theme-color" content="#ffffff">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
@@ -19,7 +19,6 @@
 
   <link rel="stylesheet" href="/static/styles.css">
 
-  <!-- Keep the same minimal inline styles you had working -->
   <style>
     :root { --gap: 14px; }
     * { box-sizing: border-box; }
@@ -28,6 +27,7 @@
     header { display: grid; gap: var(--gap); margin-bottom: 16px; }
     .controls, .controls2 { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
     .row { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
+    .space { flex: 1; }
     .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 16px; padding: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.03); }
     h1 { font-size: 1.6rem; margin: 0; }
     h2 { font-size: 1.25rem; margin-top: 0; }
@@ -35,12 +35,7 @@
     .meta { color: #666; font-size: .9rem; margin-top: 10px; min-height: 1.2em; }
     button, select, input[type="text"] { padding: 10px 12px; border-radius: 10px; border: 1px solid #ddd; background: #fff; }
     button:hover { background: #f2f2f2; cursor: pointer; }
-    .spinner {
-      position: fixed; top: 16px; right: 16px;
-      display: none; width: 22px; height: 22px;
-      border: 3px solid #ccc; border-top-color: #333; border-radius: 50%;
-      animation: spin 1s linear infinite; z-index: 100;
-    }
+    .spinner { position: fixed; top: 16px; right: 16px; display: none; width: 22px; height: 22px; border: 3px solid #ccc; border-top-color: #333; border-radius: 50%; animation: spin 1s linear infinite; z-index: 100; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .error { color: #b00020; font-size: .95rem; min-height: 1.2em; }
     .vote { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; margin-top: 12px; }
@@ -48,19 +43,20 @@
     .toggle { display:flex; align-items:center; gap:6px; }
     .share-wrap { position: relative; display: inline-block; }
     .share-menu {
-      position: absolute; top: 105%; left: 0;
+      position: absolute; top: 105%; right: 0;
       background: #fff; border: 1px solid #ddd; border-radius: 10px;
       box-shadow: 0 6px 16px rgba(0,0,0,.08);
       padding: 8px; display: none; min-width: 180px; z-index: 50;
     }
     .share-menu button { display: block; width: 100%; text-align: left; margin: 2px 0; }
 
+    /* Under-story action bar */
+    .under-actions { display: flex; align-items: center; gap: var(--gap); margin-top: 12px; }
+    .right-actions { margin-left: auto; display: flex; gap: var(--gap); align-items: center; }
+
     /* Buy Me a Coffee (minimal) */
     .tip-wrap { margin-top: 6px; }
-    .tip-btn {
-      display: inline-block; padding: 8px 12px; border-radius: 10px;
-      border: 1px solid #ddd; background: #fff; text-decoration: none; color: #111; font-size: .95rem;
-    }
+    .tip-btn { display: inline-block; padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; background: #fff; text-decoration: none; color: #111; font-size: .95rem; }
     .tip-btn:hover { background: #f2f2f2; }
     .tip-note { color:#666; font-size:.9rem; margin-top:4px; }
   </style>
@@ -70,12 +66,9 @@
   <header>
     <h1>r/AmItheAsshole Random Reader</h1>
 
-    <!-- Random button under title -->
-    <div class="row">
-      <button id="randomBtn">🎲 Random</button>
-    </div>
+    <!-- (Random button removed from here, per your request) -->
 
-    <!-- Buy Me a Coffee (hardcoded link) -->
+    <!-- Buy Me a Coffee -->
     <div class="row">
       <div class="tip-wrap">
         <a class="tip-btn" href="https://www.buymeacoffee.com/randomaita" target="_blank" rel="noopener">
@@ -120,21 +113,6 @@
         <button id="speak">🔊 Read</button>
         <button id="pause">⏸️ Pause</button>
       </div>
-      <div class="row">
-        <a id="openLink" target="_blank" rel="noopener"><button>Open on Reddit</button></a>
-
-        <!-- Share dropdown -->
-        <div class="share-wrap">
-          <button id="shareToggle">Share ▾</button>
-          <div class="share-menu" id="shareMenu">
-            <button data-share="whatsapp">🟢 WhatsApp</button>
-            <button data-share="facebook">🔵 Facebook</button>
-            <button data-share="twitter">✖️ Twitter (X)</button>
-            <button data-share="reddit">🟠 Reddit</button>
-            <button data-share="sms">💬 Text/SMS</button>
-          </div>
-        </div>
-      </div>
     </div>
   </header>
 
@@ -152,10 +130,30 @@
       <button id="voteESH">Everyone Sucks Here (ESH)</button>
       <span class="tally" id="tally">(no votes yet)</span>
     </div>
+
+    <!-- 🔻 New: under-story action row -->
+    <div class="under-actions">
+      <button id="randomBtn">🎲 Random</button>
+
+      <div class="right-actions">
+        <a id="openLink" target="_blank" rel="noopener"><button>Open on Reddit</button></a>
+
+        <div class="share-wrap">
+          <button id="shareToggle">Share ▾</button>
+          <div class="share-menu" id="shareMenu">
+            <button data-share="whatsapp">🟢 WhatsApp</button>
+            <button data-share="facebook">🔵 Facebook</button>
+            <button data-share="twitter">✖️ Twitter (X)</button>
+            <button data-share="reddit">🟠 Reddit</button>
+            <button data-share="sms">💬 Text/SMS</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 🔺 New row ends -->
   </article>
 </main>
 
-<!-- Keep your existing JS file (works with these IDs) -->
-<script src="/static/app.js?v=9"></script>
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>

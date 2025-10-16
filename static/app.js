@@ -31,10 +31,7 @@ function setLoading(isLoading) {
   randomBtn.disabled = isLoading;
   errorEl.textContent = "";
 }
-
-function setError(msg) {
-  errorEl.textContent = msg || "";
-}
+function setError(msg) { errorEl.textContent = msg || ""; }
 
 function qs() {
   const p = new URLSearchParams();
@@ -48,7 +45,6 @@ function qs() {
 function setMetaPreVote(post) {
   metaEl.textContent = post.over_18 ? "NSFW" : "";
 }
-
 function setMetaPostVote(post) {
   const verdictText = post.flair ? post.flair : "No verdict yet";
   const nsfw = post.over_18 ? " • NSFW" : "";
@@ -63,8 +59,16 @@ function updateView(post, yourVote=null) {
   tallyEl.textContent = "(no votes yet)";
   if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
   fetchResults();
+
+  // Update browser URL to shareable link (?id=POSTID) without reloading
+  if (post?.id) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("id", post.id);
+    history.replaceState({}, "", url.toString());
+  }
 }
 
+// --------- Fetchers ----------
 async function fetchRandom() {
   setLoading(true);
   stopSpeech();
@@ -85,6 +89,27 @@ async function fetchRandom() {
   }
 }
 
+async function fetchById(pid) {
+  if (!pid) return fetchRandom();
+  setLoading(true);
+  stopSpeech();
+  try {
+    const res = await fetch(`/api/post?id=${encodeURIComponent(pid)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      // fallback to random if not found
+      return fetchRandom();
+    }
+    const { post, your_vote } = data;
+    updateView(post, your_vote);
+  } catch (e) {
+    fetchRandom();
+  } finally {
+    setLoading(false);
+  }
+}
+
+// --------- Voting ----------
 async function vote(which) {
   if (!currentPost?.id) return;
   try {
@@ -135,6 +160,7 @@ async function fetchResults() {
   } catch {}
 }
 
+// --------- Speech ----------
 function stopSpeech() { synth.cancel(); pauseBtn.textContent = "⏸️ Pause"; }
 function readAloud() {
   if (!currentPost) return;
@@ -151,8 +177,15 @@ function pauseOrResume() {
   }
 }
 
+// --------- Share (use YOUR site link now) ----------
+function yourPostUrl() {
+  if (currentPost?.id) {
+    return `${window.location.origin}/?id=${encodeURIComponent(currentPost.id)}`;
+  }
+  return window.location.origin;
+}
 function shareTextAndUrl() {
-  const url = currentPost?.permalink || window.location.href;
+  const url = yourPostUrl();
   const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this AITA story`;
   return { text, url };
 }
@@ -172,6 +205,7 @@ shareToggle.addEventListener("click", e => { e.stopPropagation(); shareMenu.styl
 shareMenu.addEventListener("click", e => { const btn = e.target.closest("button"); if (!btn) return; handleShare(btn.dataset.share); shareMenu.style.display = "none"; });
 document.addEventListener("click", () => shareMenu.style.display = "none");
 
+// --------- Events ----------
 randomBtn.addEventListener("click", fetchRandom);
 searchBtn.addEventListener("click", fetchRandom);
 searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
@@ -179,11 +213,20 @@ searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(
 speakBtn.addEventListener("click", readAloud);
 pauseBtn.addEventListener("click", pauseOrResume);
 
-sortSel.addEventListener("change", () => rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none");
+sortSel.addEventListener("change", () => {
+  rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
+});
 voteYTA.addEventListener("click", () => vote("YTA"));
 voteNTA.addEventListener("click", () => vote("NTA"));
 voteESH.addEventListener("click", () => vote("ESH"));
 
-window.addEventListener("DOMContentLoaded", () => fetchRandom());
+// --------- Initial load: if ?id= present, load that post; else random ----------
+window.addEventListener("DOMContentLoaded", () => {
+  const pid = new URLSearchParams(window.location.search).get("id");
+  if (pid) fetchById(pid);
+  else fetchRandom();
+});
+
+// Init UI
 rangeSel.style.display = "none";
 setError("");

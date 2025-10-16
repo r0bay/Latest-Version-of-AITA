@@ -1,6 +1,6 @@
 import os, time, random, threading, sqlite3, tempfile
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, render_template, jsonify, request, session
 import requests
 from contextlib import contextmanager
 from threading import Lock
@@ -37,7 +37,6 @@ def init_db():
                 esh INTEGER NOT NULL DEFAULT 0
             )
         """)
-        # ensure columns exist
         cols = {row[1] for row in conn.execute("PRAGMA table_info(votes)").fetchall()}
         if "esh" not in cols:
             conn.execute("ALTER TABLE votes ADD COLUMN esh INTEGER NOT NULL DEFAULT 0")
@@ -93,20 +92,16 @@ def api_get(path, params=None):
     token   = get_access_token()
     headers = {"Authorization": f"bearer {token}", "User-Agent": USER_AGENT}
     r = requests.get(API_BASE + path, headers=headers, params=params or {}, timeout=30)
-    try:
-        r.raise_for_status()
-    except requests.HTTPError:
-        print("API DEBUG:", r.status_code, r.text)
-        raise
+    r.raise_for_status()
     return r.json()
 
 def normalize(item):
     d = item.get("data", {})
-    title = (d.get("title") or "").strip()
-    text  = (d.get("selftext") or "").strip()
-    flair_raw = (d.get("link_flair_text") or "").strip() or None
     if not d.get("is_self"):
         return None
+    title = (d.get("title") or "").strip()
+    text  = (d.get("selftext") or "").strip()
+    flair = (d.get("link_flair_text") or "").strip() or None
     if not title or len(text) < 80:
         return None
     return {
@@ -115,7 +110,7 @@ def normalize(item):
         "text": text,
         "permalink": "https://www.reddit.com" + (d.get("permalink") or ""),
         "subreddit": d.get("subreddit") or SUBREDDIT,
-        "flair": flair_raw,       # raw Reddit flair (may be None)
+        "flair": flair,
         "over_18": bool(d.get("over_18")),
         "created_utc": d.get("created_utc"),
     }
@@ -130,25 +125,19 @@ def fetch_posts(sort="hot", t=None):
     if sort == "top" and t:
         params["t"] = t
     j = api_get(f"/r/{SUBREDDIT}/{sort}", params=params)
-    posts = []
-    for c in j.get("data", {}).get("children", []):
-        norm = normalize(c)
-        if norm:
-            posts.append(norm)
+    posts = [normalize(c) for c in j.get("data", {}).get("children", []) if normalize(c)]
     random.shuffle(posts)
     POST_CACHE[key] = {"posts": posts, "ts": now}
     return posts
 
 def apply_filters(posts, include_nsfw=False, search_q=None):
-    results = []
     q = (search_q or "").strip().lower()
+    results = []
     for p in posts:
         if not include_nsfw and p.get("over_18"):
             continue
-        if q:
-            hay = f"{p.get('title','')} {p.get('text','')}".lower()
-            if q not in hay:
-                continue
+        if q and q not in f"{p['title']} {p['text']}".lower():
+            continue
         results.append(p)
     return results
 
@@ -159,48 +148,59 @@ def index():
 
 @app.route("/api/random")
 def api_random():
+    sort = request.args.get("sort", "hot")
+    t = request.args.get("t") if sort == "top" else None
+    include_nsfw = request.args.get("nsfw", "0") in ("1", "true", "True")
+    search_q = request.args.get("q", "").strip()
+
+    # "all" just means: ignore sort filter and pick from "hot" + filters
+    if sort == "all":
+        sort = "hot"
+
+    posts = fetch_posts(sort=sort, t=t)
+    posts = apply_filters(posts, include_nsfw=include_nsfw, search_q=search_q)
+    if not posts:
+        return jsonify({"error": "no_posts"}), 404
+    post = random.choice(posts)
+    your_vote = session.get("voted", {}).get(post["id"])
+    return jsonify({"post": post, "your_vote": your_vote})
+
+@app.route("/api/post")
+def api_post_by_id():
+    """Fetch a single post by Reddit id (for sharing our own link ?id=POSTID)."""
+    pid = request.args.get("id", "").strip()
+    if not pid:
+        return jsonify({"ok": False, "error": "missing_id"}), 400
     try:
-        sort = request.args.get("sort", "hot")
-        t    = request.args.get("t") if sort == "top" else None
-        include_nsfw = request.args.get("nsfw", "0") in ("1", "true", "True")
-        search_q     = request.args.get("q", "").strip()
-
-        posts = fetch_posts(sort=sort, t=t)
-        posts = apply_filters(posts, include_nsfw=include_nsfw, search_q=search_q)
-        if not posts:
-            return jsonify({"error": "no_posts", "message": "No posts matched your filters. Try different search or sort."}), 404
-
-        post = random.choice(posts)
+        # Reddit API: /api/info?id=t3_<id>
+        j = api_get("/api/info", params={"id": f"t3_{pid}"})
+        children = j.get("data", {}).get("children", [])
+        if not children:
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        post = normalize(children[0])
+        if not post:
+            return jsonify({"ok": False, "error": "not_found"}), 404
         your_vote = session.get("voted", {}).get(post["id"])
-        return jsonify({"post": post, "your_vote": your_vote})
-    except Exception as e:
-        return jsonify({"error": "server_error", "detail": str(e)}), 500
+        return jsonify({"ok": True, "post": post, "your_vote": your_vote})
+    except requests.HTTPError as e:
+        return jsonify({"ok": False, "error": "fetch_failed", "detail": str(e)}), 502
 
 @app.route("/api/vote", methods=["POST"])
 def api_vote():
-    try:
-        data    = request.get_json(force=True, silent=False)
-        post_id = data.get("post_id")
-        vote    = data.get("vote")  # "YTA" | "NTA" | "ESH"
-        if vote not in ("YTA", "NTA", "ESH") or not post_id:
-            return jsonify({"ok": False, "error": "invalid_vote"}), 400
-
-        # copy -> mutate -> assign back so Flask saves cookie
-        voted = dict(session.get("voted", {}))
-        prev  = voted.get(post_id)
-
+    data = request.get_json(force=True)
+    post_id = data.get("post_id")
+    vote = data.get("vote")
+    if vote not in ("YTA", "NTA", "ESH") or not post_id:
+        return jsonify({"ok": False, "error": "invalid_vote"}), 400
+    voted = dict(session.get("voted", {}))
+    if voted.get(post_id):
         counts = db_get_counts(post_id)
-        if prev:
-            return jsonify({"ok": False, "error": "already_voted", "counts": counts}), 200
-
-        counts = db_apply_vote_once(post_id, vote)
-        voted[post_id] = vote
-        session["voted"] = voted
-        session.modified = True
-
-        return jsonify({"ok": True, "counts": counts})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": "already_voted", "counts": counts})
+    counts = db_apply_vote_once(post_id, vote)
+    voted[post_id] = vote
+    session["voted"] = voted
+    session.modified = True
+    return jsonify({"ok": True, "counts": counts})
 
 @app.route("/api/results")
 def api_results():
@@ -211,19 +211,16 @@ def api_results():
     your_vote = session.get("voted", {}).get(post_id)
     return jsonify({"ok": True, "counts": counts, "your_vote": your_vote})
 
-# ---------- Warm cache & DB init ----------
+# ---------- Startup ----------
 def warm_start():
     try:
-        for sort, t in [("hot", None), ("new", None), ("top", "week"), ("top", "month")]:
-            fetch_posts(sort=sort, t=t)
+        for sort, t in [("hot", None), ("new", None), ("top", "week")]:
+            fetch_posts(sort, t)
     except Exception as e:
         print("Warm start warning:", e)
 
-try:
-    init_db()
-except Exception as e:
-    print("DB init error:", e)
+init_db()
+threading.Thread(target=warm_start, daemon=True).start()
 
 if __name__ == "__main__":
-    threading.Thread(target=warm_start, daemon=True).start()
     app.run(host="127.0.0.1", port=PORT, debug=True)
