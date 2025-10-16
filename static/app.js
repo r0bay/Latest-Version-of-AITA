@@ -1,4 +1,3 @@
-// ---------- Elements ----------
 const titleEl = document.getElementById("title");
 const textEl  = document.getElementById("text");
 const metaEl  = document.getElementById("meta");
@@ -10,10 +9,9 @@ const sortSel   = document.getElementById("sort");
 const rangeSel  = document.getElementById("topRange");
 const nsfwChk   = document.getElementById("nsfw");
 const searchBox = document.getElementById("searchBox");
-const searchBtn = document.getElementById("searchBtn"); // NEW
+const searchBtn = document.getElementById("searchBtn");
 
 const randomBtn = document.getElementById("randomBtn");
-
 const speakBtn = document.getElementById("speak");
 const pauseBtn = document.getElementById("pause");
 
@@ -22,16 +20,12 @@ const voteNTA = document.getElementById("voteNTA");
 const voteESH = document.getElementById("voteESH");
 const tallyEl = document.getElementById("tally");
 
-// Share dropdown
 const shareToggle = document.getElementById("shareToggle");
 const shareMenu   = document.getElementById("shareMenu");
 
 const synth = window.speechSynthesis;
-
-// ---------- State ----------
 let currentPost = null;
 
-// ---------- Helpers ----------
 function setLoading(isLoading) {
   spinner.style.display = isLoading ? "inline-block" : "none";
   randomBtn.disabled = isLoading;
@@ -51,13 +45,10 @@ function qs() {
   return p.toString();
 }
 
-// Before voting: show nothing (except NSFW marker)
 function setMetaPreVote(post) {
-  const nsfw = post.over_18 ? "NSFW" : "";
-  metaEl.textContent = nsfw;
+  metaEl.textContent = post.over_18 ? "NSFW" : "";
 }
 
-// After voting: show "Verdict: <flair or No verdict yet>"
 function setMetaPostVote(post) {
   const verdictText = post.flair ? post.flair : "No verdict yet";
   const nsfw = post.over_18 ? " • NSFW" : "";
@@ -74,32 +65,11 @@ function updateView(post, yourVote=null) {
   fetchResults();
 }
 
-// ---------- Fetch ----------
 async function fetchRandom() {
   setLoading(true);
   stopSpeech();
   try {
-    const res = await async function fetchRandom() {
-  setLoading(true);
-  stopSpeech();
-  try {
-    const params = qs();
-    const res = await fetch(`/api/random?${params}`);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 404 && data.message) setError(data.message);
-      else setError(data.error || `HTTP ${res.status}`);
-      return;
-    }
-    const { post, your_vote } = await res.json();
-    updateView(post, your_vote);
-  } catch (e) {
-    setError(String(e));
-  } finally {
-    setLoading(false);
-  }
-}
-;
+    const res = await fetch(`/api/random?${qs()}`);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       if (res.status === 404 && data.message) setError(data.message);
@@ -115,7 +85,6 @@ async function fetchRandom() {
   }
 }
 
-// ---------- Voting (one vote per story) ----------
 async function vote(which) {
   if (!currentPost?.id) return;
   try {
@@ -166,11 +135,7 @@ async function fetchResults() {
   } catch {}
 }
 
-// ---------- Speech ----------
-function stopSpeech() {
-  synth.cancel();
-  pauseBtn.textContent = "⏸️ Pause";
-}
+function stopSpeech() { synth.cancel(); pauseBtn.textContent = "⏸️ Pause"; }
 function readAloud() {
   if (!currentPost) return;
   stopSpeech();
@@ -180,23 +145,18 @@ function readAloud() {
 }
 function pauseOrResume() {
   if (synth.speaking && !synth.paused) {
-    synth.pause();
-    pauseBtn.textContent = "▶️ Resume";
+    synth.pause(); pauseBtn.textContent = "▶️ Resume";
   } else if (synth.paused) {
-    synth.resume();
-    pauseBtn.textContent = "⏸️ Pause";
+    synth.resume(); pauseBtn.textContent = "⏸️ Pause";
   }
 }
 
-// ---------- Share dropdown ----------
 function shareTextAndUrl() {
   const url = currentPost?.permalink || window.location.href;
   const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this AITA story`;
   return { text, url };
 }
-function openShare(url) {
-  window.open(url, "_blank", "noopener,noreferrer");
-}
+function openShare(url) { window.open(url, "_blank", "noopener,noreferrer"); }
 function handleShare(action) {
   const { text, url } = shareTextAndUrl();
   if (!action) return;
@@ -208,47 +168,22 @@ function handleShare(action) {
     case "sms":      window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`; break;
   }
 }
-function toggleShareMenu(show) {
-  shareMenu.style.display = show ? "block" : (shareMenu.style.display === "block" ? "none" : "block");
-}
+shareToggle.addEventListener("click", e => { e.stopPropagation(); shareMenu.style.display = shareMenu.style.display === "block" ? "none" : "block"; });
+shareMenu.addEventListener("click", e => { const btn = e.target.closest("button"); if (!btn) return; handleShare(btn.dataset.share); shareMenu.style.display = "none"; });
+document.addEventListener("click", () => shareMenu.style.display = "none");
 
-// ---------- Events ----------
 randomBtn.addEventListener("click", fetchRandom);
-
-// NEW: Clicking the Search button triggers a filtered random
 searchBtn.addEventListener("click", fetchRandom);
-
-// Press Enter in the search box also works
-searchBox.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") fetchRandom();
-});
+searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
 
 speakBtn.addEventListener("click", readAloud);
 pauseBtn.addEventListener("click", pauseOrResume);
 
-sortSel.addEventListener("change", () => {
-  const isTop = sortSel.value === "top";
-  rangeSel.style.display = isTop ? "inline-block" : "none";
-});
-
+sortSel.addEventListener("change", () => rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none");
 voteYTA.addEventListener("click", () => vote("YTA"));
 voteNTA.addEventListener("click", () => vote("NTA"));
 voteESH.addEventListener("click", () => vote("ESH"));
 
-shareToggle.addEventListener("click", (e) => {
-  e.stopPropagation(); toggleShareMenu();
-});
-shareMenu.addEventListener("click", (e) => {
-  const btn = e.target.closest("button"); if (!btn) return;
-  handleShare(btn.dataset.share); toggleShareMenu(false);
-});
-document.addEventListener("click", () => { shareMenu.style.display = "none"; });
-
-// ---------- Auto-load first story ----------
-window.addEventListener("DOMContentLoaded", () => {
-  fetchRandom();
-});
-
-// Initial UI
+window.addEventListener("DOMContentLoaded", () => fetchRandom());
 rangeSel.style.display = "none";
 setError("");
