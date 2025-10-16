@@ -44,10 +44,10 @@ function setError(msg) {
 
 function qs() {
   const p = new URLSearchParams();
-  if (sortSel.value) p.set("sort", sortSel.value);
+  if (sortSel.value && sortSel.value !== "all") p.set("sort", sortSel.value);
   if (sortSel.value === "top" && rangeSel.value) p.set("t", rangeSel.value);
   if (nsfwChk.checked) p.set("nsfw", "1");
-  if (searchBox.value.trim()) p.set("q", searchBox.value.trim()); // picks up your search text
+  if (searchBox.value.trim()) p.set("q", searchBox.value.trim());
   return p.toString();
 }
 
@@ -79,7 +79,27 @@ async function fetchRandom() {
   setLoading(true);
   stopSpeech();
   try {
-    const res = await fetch(`/api/random?${qs()}`);
+    const res = await async function fetchRandom() {
+  setLoading(true);
+  stopSpeech();
+  try {
+    const params = qs();
+    const res = await fetch(`/api/random?${params}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 404 && data.message) setError(data.message);
+      else setError(data.error || `HTTP ${res.status}`);
+      return;
+    }
+    const { post, your_vote } = await res.json();
+    updateView(post, your_vote);
+  } catch (e) {
+    setError(String(e));
+  } finally {
+    setLoading(false);
+  }
+}
+;
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       if (res.status === 404 && data.message) setError(data.message);
