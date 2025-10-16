@@ -172,7 +172,6 @@ def api_post_by_id():
     if not pid:
         return jsonify({"ok": False, "error": "missing_id"}), 400
     try:
-        # Reddit API: /api/info?id=t3_<id>
         j = api_get("/api/info", params={"id": f"t3_{pid}"})
         children = j.get("data", {}).get("children", [])
         if not children:

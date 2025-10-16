@@ -12,8 +12,8 @@ const searchBox = document.getElementById("searchBox");
 const searchBtn = document.getElementById("searchBtn");
 
 const randomBtn = document.getElementById("randomBtn");
-const speakBtn = document.getElementById("speak");
-const pauseBtn = document.getElementById("pause");
+const speakBtn  = document.getElementById("speak");
+const pauseBtn  = document.getElementById("pause");
 
 const voteYTA = document.getElementById("voteYTA");
 const voteNTA = document.getElementById("voteNTA");
@@ -28,7 +28,7 @@ let currentPost = null;
 
 function setLoading(isLoading) {
   spinner.style.display = isLoading ? "inline-block" : "none";
-  randomBtn.disabled = isLoading;
+  if (randomBtn) randomBtn.disabled = isLoading;
   errorEl.textContent = "";
 }
 function setError(msg) { errorEl.textContent = msg || ""; }
@@ -51,21 +51,33 @@ function setMetaPostVote(post) {
   metaEl.textContent = `Verdict: ${verdictText}${nsfw}`;
 }
 
+function scrollToTop() {
+  // Scroll the whole page to the top of the article (nice on phones)
+  const card = document.getElementById("postCard") || document.body;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function updateView(post, yourVote=null) {
   currentPost = post;
   titleEl.textContent = post.title || "(no title)";
   textEl.textContent  = post.text || "";
   openEl.href = post.permalink || "#";
-  tallyEl.textContent = "(no votes yet)";
+
+  // Clear tally until we know there are votes
+  tallyEl.textContent = "";
+
   if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
   fetchResults();
 
-  // Update browser URL to shareable link (?id=POSTID) without reloading
+  // Update URL to a shareable link (?id=POSTID)
   if (post?.id) {
     const url = new URL(window.location.href);
     url.searchParams.set("id", post.id);
     history.replaceState({}, "", url.toString());
   }
+
+  // After new content loads, scroll to top
+  scrollToTop();
 }
 
 // --------- Fetchers ----------
@@ -97,7 +109,6 @@ async function fetchById(pid) {
     const res = await fetch(`/api/post?id=${encodeURIComponent(pid)}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
-      // fallback to random if not found
       return fetchRandom();
     }
     const { post, your_vote } = data;
@@ -124,7 +135,8 @@ async function vote(which) {
       const y = data.counts?.YTA || 0;
       const n = data.counts?.NTA || 0;
       const e = data.counts?.ESH || 0;
-      tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
+      const total = y + n + e;
+      tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
       setMetaPostVote(currentPost);
       setError("You can only vote once for this story.");
       setTimeout(() => setError(""), 2000);
@@ -139,7 +151,8 @@ async function vote(which) {
     const y = data.counts?.YTA || 0;
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
-    tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
+    const total = y + n + e;
+    tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
     setMetaPostVote(currentPost);
   } catch (err) {
     setError(String(err));
@@ -155,7 +168,12 @@ async function fetchResults() {
     const y = data.counts?.YTA || 0;
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
-    if (y + n + e > 0) tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
+    const total = y + n + e;
+    if (total > 0) {
+      tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
+    } else {
+      tallyEl.textContent = "";
+    }
     if (data.your_vote) setMetaPostVote(currentPost);
   } catch {}
 }
@@ -177,7 +195,7 @@ function pauseOrResume() {
   }
 }
 
-// --------- Share (use YOUR site link now) ----------
+// --------- Share (use YOUR site link) ----------
 function yourPostUrl() {
   if (currentPost?.id) {
     return `${window.location.origin}/?id=${encodeURIComponent(currentPost.id)}`;
@@ -206,7 +224,10 @@ shareMenu.addEventListener("click", e => { const btn = e.target.closest("button"
 document.addEventListener("click", () => shareMenu.style.display = "none");
 
 // --------- Events ----------
-randomBtn.addEventListener("click", fetchRandom);
+randomBtn.addEventListener("click", () => {
+  scrollToTop();
+  fetchRandom();
+});
 searchBtn.addEventListener("click", fetchRandom);
 searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
 
@@ -220,13 +241,12 @@ voteYTA.addEventListener("click", () => vote("YTA"));
 voteNTA.addEventListener("click", () => vote("NTA"));
 voteESH.addEventListener("click", () => vote("ESH"));
 
-// --------- Initial load: if ?id= present, load that post; else random ----------
+// --------- Initial load ----------
 window.addEventListener("DOMContentLoaded", () => {
   const pid = new URLSearchParams(window.location.search).get("id");
   if (pid) fetchById(pid);
   else fetchRandom();
 });
 
-// Init UI
 rangeSel.style.display = "none";
 setError("");
