@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <!-- Google tag (gtag.js) -->
-  <script async src="="https://www.googletagmanager.com/gtag/js?id=G-BDXP39TTQC"></script>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-BDXP39TTQC"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
@@ -10,13 +10,13 @@
     gtag('config', 'G-BDXP39TTQC');
   </script>
 
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#ffffff" />
-  <link rel="manifest" href="/static/manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Random AITA</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
@@ -25,30 +25,44 @@
     }
   </script>
 </head>
-
 <body>
   <div class="container">
     <header>
-      <h1>r/AmItheAsshole Random Reader</h1>
-      <p>Get a random story from Reddit’s r/AITA community!</p>
+      <h1>Random AITA</h1>
+      <select id="subreddit-select">
+        <option value="aita">r/AmItheAsshole</option>
+        <option value="TwoHotTakes">r/TwoHotTakes</option>
+        <option value="AmIOverreacting">r/AmIOverreacting</option>
+        <option value="all">All</option>
+      </select>
+      <input type="text" id="search-box" placeholder="Search posts...">
+      <button id="search-btn">Search</button>
     </header>
 
-    <div id="story-container" class="story">
-      <h2 id="story-title">Loading...</h2>
-      <p id="story-body"></p>
-      <div id="vote-buttons" class="row">
-        <button id="vote-yta" class="vote-btn">YTA</button>
-        <button id="vote-nta" class="vote-btn">NTA</button>
-        <button id="vote-esh" class="vote-btn">ESH</button>
+    <main id="story">
+      <h2 id="title"></h2>
+      <p id="author"></p>
+      <div id="text"></div>
+      <div class="vote-buttons">
+        <button id="yta-btn">YTA</button>
+        <button id="nta-btn">NTA</button>
+        <button id="esh-btn">ESH</button>
       </div>
-      <div id="vote-results" class="vote-results"></div>
-    </div>
+      <p id="vote-result"></p>
+    </main>
 
-    <div class="row action-row">
-      <button id="random-btn" class="main-btn">🎲 Random</button>
-      <div class="right-buttons">
-        <a id="reddit-link" href="#" target="_blank" class="action-btn">Open on Reddit</a>
-        <button id="share-btn" class="action-btn">Share</button>
+    <div class="bottom-buttons">
+      <button id="random-btn">🎲 Random</button>
+      <a id="reddit-link" href="#" target="_blank">Open on Reddit</a>
+      <div class="share-dropdown">
+        <button id="share-btn">🔗 Share</button>
+        <div class="share-menu">
+          <a href="#" id="share-whatsapp">WhatsApp</a>
+          <a href="#" id="share-facebook">Facebook</a>
+          <a href="#" id="share-twitter">Twitter</a>
+          <a href="#" id="share-reddit">Reddit</a>
+          <a href="#" id="share-sms">Text</a>
+        </div>
       </div>
     </div>
 
@@ -57,9 +71,7 @@
         <a class="tip-btn" href="https://www.buymeacoffee.com/randomaita" target="_blank" rel="noopener">
           ☕ Buy me a coffee
         </a>
-        <div class="tip-note">
-          Donations help keep the site running ad-free. Thank you! ❤️
-        </div>
+        <div class="tip-note">Donations help keep the site running ad-free. Thank you! ❤️</div>
       </div>
     </div>
   </div>
