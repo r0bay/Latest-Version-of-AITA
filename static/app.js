@@ -5,6 +5,7 @@ const errorEl = document.getElementById("error");
 const openEl  = document.getElementById("openLink");
 const spinner = document.getElementById("spinner");
 
+const subSel    = document.getElementById("subreddit");
 const sortSel   = document.getElementById("sort");
 const rangeSel  = document.getElementById("topRange");
 const nsfwChk   = document.getElementById("nsfw");
@@ -35,6 +36,7 @@ function setError(msg) { errorEl.textContent = msg || ""; }
 
 function qs() {
   const p = new URLSearchParams();
+  if (subSel.value) p.set("sub", subSel.value);
   if (sortSel.value && sortSel.value !== "all") p.set("sort", sortSel.value);
   if (sortSel.value === "top" && rangeSel.value) p.set("t", rangeSel.value);
   if (nsfwChk.checked) p.set("nsfw", "1");
@@ -43,7 +45,8 @@ function qs() {
 }
 
 function setMetaPreVote(post) {
-  metaEl.textContent = post.over_18 ? "NSFW" : "";
+  const nsfw = post.over_18 ? "NSFW" : "";
+  metaEl.textContent = nsfw;
 }
 function setMetaPostVote(post) {
   const verdictText = post.flair ? post.flair : "No verdict yet";
@@ -52,7 +55,6 @@ function setMetaPostVote(post) {
 }
 
 function scrollToTop() {
-  // Scroll the whole page to the top of the article (nice on phones)
   const card = document.getElementById("postCard") || document.body;
   card.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -69,10 +71,11 @@ function updateView(post, yourVote=null) {
   if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
   fetchResults();
 
-  // Update URL to a shareable link (?id=POSTID)
+  // Update URL to a shareable link (?id=POSTID&sub=SUB)
   if (post?.id) {
     const url = new URL(window.location.href);
     url.searchParams.set("id", post.id);
+    if (subSel.value) url.searchParams.set("sub", subSel.value);
     history.replaceState({}, "", url.toString());
   }
 
@@ -169,11 +172,8 @@ async function fetchResults() {
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
     const total = y + n + e;
-    if (total > 0) {
-      tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
-    } else {
-      tallyEl.textContent = "";
-    }
+    if (total > 0) tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
+    else tallyEl.textContent = "";
     if (data.your_vote) setMetaPostVote(currentPost);
   } catch {}
 }
@@ -195,16 +195,16 @@ function pauseOrResume() {
   }
 }
 
-// --------- Share (use YOUR site link) ----------
+// --------- Share (use YOUR site link and include sub) ----------
 function yourPostUrl() {
-  if (currentPost?.id) {
-    return `${window.location.origin}/?id=${encodeURIComponent(currentPost.id)}`;
-  }
-  return window.location.origin;
+  const url = new URL(window.location.origin);
+  url.searchParams.set("id", currentPost?.id || "");
+  if (subSel.value) url.searchParams.set("sub", subSel.value);
+  return url.toString();
 }
 function shareTextAndUrl() {
   const url = yourPostUrl();
-  const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this AITA story`;
+  const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this story`;
   return { text, url };
 }
 function openShare(url) { window.open(url, "_blank", "noopener,noreferrer"); }
@@ -224,10 +224,7 @@ shareMenu.addEventListener("click", e => { const btn = e.target.closest("button"
 document.addEventListener("click", () => shareMenu.style.display = "none");
 
 // --------- Events ----------
-randomBtn.addEventListener("click", () => {
-  scrollToTop();
-  fetchRandom();
-});
+randomBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
 searchBtn.addEventListener("click", fetchRandom);
 searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
 
@@ -237,13 +234,29 @@ pauseBtn.addEventListener("click", pauseOrResume);
 sortSel.addEventListener("change", () => {
   rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
 });
+subSel.addEventListener("change", () => {
+  // When subreddit changes, load a new random post from that sub
+  const url = new URL(window.location.href);
+  url.searchParams.set("sub", subSel.value);
+  url.searchParams.delete("id"); // new sub, so get a fresh random post
+  history.replaceState({}, "", url.toString());
+  fetchRandom();
+});
+
 voteYTA.addEventListener("click", () => vote("YTA"));
 voteNTA.addEventListener("click", () => vote("NTA"));
 voteESH.addEventListener("click", () => vote("ESH"));
 
 // --------- Initial load ----------
 window.addEventListener("DOMContentLoaded", () => {
-  const pid = new URLSearchParams(window.location.search).get("id");
+  // Read ?sub= from URL and set dropdown (fallback to default if unknown)
+  const urlParams = new URLSearchParams(window.location.search);
+  const sub = urlParams.get("sub");
+  if (sub && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
+    subSel.value = Array.from(subSel.options).find(o => o.value.toLowerCase() === sub.toLowerCase()).value;
+  }
+
+  const pid = urlParams.get("id");
   if (pid) fetchById(pid);
   else fetchRandom();
 });

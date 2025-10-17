@@ -18,7 +18,14 @@ PORT          = int(os.environ.get("PORT", "8080"))
 
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
 API_BASE  = "https://oauth.reddit.com"
-SUBREDDIT = "AmItheAsshole"
+
+# Allowed subreddits (add more safely here)
+ALLOWED_SUBS = {
+    "AmItheAsshole": "AmItheAsshole",      # r/AmItheAsshole
+    "twohottakes": "twohottakes",          # r/twohottakes
+    "AmIOverreacting": "AmIOverreacting",  # r/AmIOverreacting
+}
+DEFAULT_SUB = "AmItheAsshole"
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(24))  # per-session vote lock
@@ -109,14 +116,14 @@ def normalize(item):
         "title": title,
         "text": text,
         "permalink": "https://www.reddit.com" + (d.get("permalink") or ""),
-        "subreddit": d.get("subreddit") or SUBREDDIT,
+        "subreddit": d.get("subreddit"),
         "flair": flair,
         "over_18": bool(d.get("over_18")),
         "created_utc": d.get("created_utc"),
     }
 
-def fetch_posts(sort="hot", t=None):
-    key = (sort, t or "")
+def fetch_posts(subreddit, sort="hot", t=None):
+    key = (subreddit, sort, t or "")
     now = time.time()
     cached = POST_CACHE.get(key)
     if cached and now - cached["ts"] < CACHE_TTL:
@@ -124,7 +131,7 @@ def fetch_posts(sort="hot", t=None):
     params = {"limit": 100}
     if sort == "top" and t:
         params["t"] = t
-    j = api_get(f"/r/{SUBREDDIT}/{sort}", params=params)
+    j = api_get(f"/r/{subreddit}/{sort}", params=params)
     posts = [normalize(c) for c in j.get("data", {}).get("children", []) if normalize(c)]
     random.shuffle(posts)
     POST_CACHE[key] = {"posts": posts, "ts": now}
@@ -141,6 +148,16 @@ def apply_filters(posts, include_nsfw=False, search_q=None):
         results.append(p)
     return results
 
+def safe_sub(value):
+    if not value:
+        return DEFAULT_SUB
+    v = value.strip()
+    # allow case-insensitive match to our allowed set
+    for k in ALLOWED_SUBS:
+        if k.lower() == v.lower():
+            return ALLOWED_SUBS[k]
+    return DEFAULT_SUB
+
 # ---------- Routes ----------
 @app.route("/")
 def index():
@@ -148,16 +165,17 @@ def index():
 
 @app.route("/api/random")
 def api_random():
+    sub = safe_sub(request.args.get("sub"))
     sort = request.args.get("sort", "hot")
     t = request.args.get("t") if sort == "top" else None
     include_nsfw = request.args.get("nsfw", "0") in ("1", "true", "True")
     search_q = request.args.get("q", "").strip()
 
-    # "all" just means: ignore sort filter and pick from "hot" + filters
+    # "all" means: use 'hot' as the source then filter
     if sort == "all":
         sort = "hot"
 
-    posts = fetch_posts(sort=sort, t=t)
+    posts = fetch_posts(subreddit=sub, sort=sort, t=t)
     posts = apply_filters(posts, include_nsfw=include_nsfw, search_q=search_q)
     if not posts:
         return jsonify({"error": "no_posts"}), 404
@@ -213,8 +231,10 @@ def api_results():
 # ---------- Startup ----------
 def warm_start():
     try:
-        for sort, t in [("hot", None), ("new", None), ("top", "week")]:
-            fetch_posts(sort, t)
+        # Preload a bit for each allowed sub
+        for sub in ALLOWED_SUBS.values():
+            for sort, t in [("hot", None), ("new", None), ("top", "week")]:
+                fetch_posts(sub, sort, t)
     except Exception as e:
         print("Warm start warning:", e)
 
