@@ -45,8 +45,7 @@ function qs() {
 }
 
 function setMetaPreVote(post) {
-  const nsfw = post.over_18 ? "NSFW" : "";
-  metaEl.textContent = nsfw;
+  metaEl.textContent = post.over_18 ? "NSFW" : "";
 }
 function setMetaPostVote(post) {
   const verdictText = post.flair ? post.flair : "No verdict yet";
@@ -79,7 +78,6 @@ function updateView(post, yourVote=null) {
     history.replaceState({}, "", url.toString());
   }
 
-  // After new content loads, scroll to top
   scrollToTop();
 }
 
@@ -172,8 +170,7 @@ async function fetchResults() {
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
     const total = y + n + e;
-    if (total > 0) tallyEl.textContent = `YTA: ${y} • NTA: ${n} • ESH: ${e}`;
-    else tallyEl.textContent = "";
+    tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
     if (data.your_vote) setMetaPostVote(currentPost);
   } catch {}
 }
@@ -198,7 +195,7 @@ function pauseOrResume() {
 // --------- Share (use YOUR site link and include sub) ----------
 function yourPostUrl() {
   const url = new URL(window.location.origin);
-  url.searchParams.set("id", currentPost?.id || "");
+  if (currentPost?.id) url.searchParams.set("id", currentPost.id);
   if (subSel.value) url.searchParams.set("sub", subSel.value);
   return url.toString();
 }
@@ -235,10 +232,10 @@ sortSel.addEventListener("change", () => {
   rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
 });
 subSel.addEventListener("change", () => {
-  // When subreddit changes, load a new random post from that sub
+  // When subreddit changes, load a new random post from that selection
   const url = new URL(window.location.href);
   url.searchParams.set("sub", subSel.value);
-  url.searchParams.delete("id"); // new sub, so get a fresh random post
+  url.searchParams.delete("id"); // new sub scope → new random post
   history.replaceState({}, "", url.toString());
   fetchRandom();
 });
@@ -249,7 +246,7 @@ voteESH.addEventListener("click", () => vote("ESH"));
 
 // --------- Initial load ----------
 window.addEventListener("DOMContentLoaded", () => {
-  // Read ?sub= from URL and set dropdown (fallback to default if unknown)
+  // Read ?sub= from URL and set dropdown (supports ALL)
   const urlParams = new URLSearchParams(window.location.search);
   const sub = urlParams.get("sub");
   if (sub && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {

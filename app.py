@@ -26,6 +26,7 @@ ALLOWED_SUBS = {
     "AmIOverreacting": "AmIOverreacting",  # r/AmIOverreacting
 }
 DEFAULT_SUB = "AmItheAsshole"
+ALL_TOKEN   = "ALL"  # special value for "All subreddits"
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(24))  # per-session vote lock
@@ -148,11 +149,13 @@ def apply_filters(posts, include_nsfw=False, search_q=None):
         results.append(p)
     return results
 
-def safe_sub(value):
+def resolve_sub(value):
+    """Return a subreddit string, or ALL_TOKEN for 'all', or default sub."""
     if not value:
         return DEFAULT_SUB
     v = value.strip()
-    # allow case-insensitive match to our allowed set
+    if v.lower() in ("all", ALL_TOKEN.lower()):
+        return ALL_TOKEN
     for k in ALLOWED_SUBS:
         if k.lower() == v.lower():
             return ALLOWED_SUBS[k]
@@ -165,17 +168,24 @@ def index():
 
 @app.route("/api/random")
 def api_random():
-    sub = safe_sub(request.args.get("sub"))
+    sub_token = resolve_sub(request.args.get("sub"))
     sort = request.args.get("sort", "hot")
     t = request.args.get("t") if sort == "top" else None
     include_nsfw = request.args.get("nsfw", "0") in ("1", "true", "True")
     search_q = request.args.get("q", "").strip()
 
-    # "all" means: use 'hot' as the source then filter
+    # "all" sort option means: use 'hot' as the source then filter
     if sort == "all":
         sort = "hot"
 
-    posts = fetch_posts(subreddit=sub, sort=sort, t=t)
+    if sub_token == ALL_TOKEN:
+        # Combine posts from all allowed subs
+        posts = []
+        for s in ALLOWED_SUBS.values():
+            posts.extend(fetch_posts(subreddit=s, sort=sort, t=t))
+    else:
+        posts = fetch_posts(subreddit=sub_token, sort=sort, t=t)
+
     posts = apply_filters(posts, include_nsfw=include_nsfw, search_q=search_q)
     if not posts:
         return jsonify({"error": "no_posts"}), 404
