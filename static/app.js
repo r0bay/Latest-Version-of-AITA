@@ -16,6 +16,7 @@ const randomBtn = document.getElementById("randomBtn");
 const speakBtn  = document.getElementById("speak");
 const pauseBtn  = document.getElementById("pause");
 
+const voteBlock = document.getElementById("voteBlock");
 const voteYTA = document.getElementById("voteYTA");
 const voteNTA = document.getElementById("voteNTA");
 const voteESH = document.getElementById("voteESH");
@@ -26,6 +27,9 @@ const shareMenu   = document.getElementById("shareMenu");
 
 const synth = window.speechSynthesis;
 let currentPost = null;
+
+// subs where we disable votes and suppress flair display
+const NO_VOTE_NO_FLAIR_SUBS = new Set(["twohottakes", "AmIOverreacting"]);
 
 function setLoading(isLoading) {
   spinner.style.display = isLoading ? "inline-block" : "none";
@@ -44,13 +48,38 @@ function qs() {
   return p.toString();
 }
 
+function shouldHideVotesAndFlair(post) {
+  if (!post?.subreddit) return false;
+  // compare case-insensitively
+  return Array.from(NO_VOTE_NO_FLAIR_SUBS).some(s => s.toLowerCase() === post.subreddit.toLowerCase());
+}
+
 function setMetaPreVote(post) {
+  // if in the no-flair list → never show flair, only NSFW badge if applicable
+  if (shouldHideVotesAndFlair(post)) {
+    metaEl.textContent = post.over_18 ? "NSFW" : "";
+    return;
+  }
   metaEl.textContent = post.over_18 ? "NSFW" : "";
 }
+
 function setMetaPostVote(post) {
+  // if in the no-flair list → never show flair (still show NSFW tag)
+  if (shouldHideVotesAndFlair(post)) {
+    metaEl.textContent = post.over_18 ? "NSFW" : "";
+    return;
+  }
   const verdictText = post.flair ? post.flair : "No verdict yet";
   const nsfw = post.over_18 ? " • NSFW" : "";
   metaEl.textContent = `Verdict: ${verdictText}${nsfw}`;
+}
+
+function toggleVotesVisibility(post) {
+  if (!voteBlock) return;
+  const hide = shouldHideVotesAndFlair(post);
+  voteBlock.style.display = hide ? "none" : "flex";
+  // also clear tally if hiding votes
+  if (hide) tallyEl.textContent = "";
 }
 
 function scrollToTop() {
@@ -64,11 +93,15 @@ function updateView(post, yourVote=null) {
   textEl.textContent  = post.text || "";
   openEl.href = post.permalink || "#";
 
-  // Clear tally until we know there are votes
+  // show/hide the voting area based on subreddit
+  toggleVotesVisibility(post);
+
+  // Clear tally until we know there are votes (and only if votes are shown)
   tallyEl.textContent = "";
 
   if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
-  fetchResults();
+  // Only fetch results if votes are enabled (no need otherwise)
+  if (!shouldHideVotesAndFlair(post)) fetchResults();
 
   // Update URL to a shareable link (?id=POSTID&sub=SUB)
   if (post?.id) {
@@ -124,6 +157,9 @@ async function fetchById(pid) {
 // --------- Voting ----------
 async function vote(which) {
   if (!currentPost?.id) return;
+  // If votes are hidden for this sub, ignore clicks (shouldn't show, but safety)
+  if (shouldHideVotesAndFlair(currentPost)) return;
+
   try {
     const res = await fetch("/api/vote", {
       method: "POST",
@@ -162,6 +198,7 @@ async function vote(which) {
 
 async function fetchResults() {
   if (!currentPost?.id) return;
+  if (shouldHideVotesAndFlair(currentPost)) return;
   try {
     const res = await fetch(`/api/results?post_id=${encodeURIComponent(currentPost.id)}`);
     const data = await res.json();
@@ -232,10 +269,9 @@ sortSel.addEventListener("change", () => {
   rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
 });
 subSel.addEventListener("change", () => {
-  // When subreddit changes, load a new random post from that selection
   const url = new URL(window.location.href);
   url.searchParams.set("sub", subSel.value);
-  url.searchParams.delete("id"); // new sub scope → new random post
+  url.searchParams.delete("id");
   history.replaceState({}, "", url.toString());
   fetchRandom();
 });
@@ -246,7 +282,6 @@ voteESH.addEventListener("click", () => vote("ESH"));
 
 // --------- Initial load ----------
 window.addEventListener("DOMContentLoaded", () => {
-  // Read ?sub= from URL and set dropdown (supports ALL)
   const urlParams = new URLSearchParams(window.location.search);
   const sub = urlParams.get("sub");
   if (sub && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
