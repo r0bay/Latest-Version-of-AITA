@@ -69,7 +69,7 @@
     .tip-btn:hover { background: #f2f2f2; }
     .tip-note { color:#666; font-size:.9rem; margin-top:4px; }
 
-    /* Sort & Filters submenu (compact button) */
+    /* Sort & Filters submenu */
     details.filters { width: fit-content; }
     details.filters > summary {
       list-style: none;
@@ -89,7 +89,7 @@
       display: grid; gap: 10px;
     }
 
-    /* ✅ Floating Random button (follows scroll) */
+    /* ✅ Floating Random button (mobile only) */
     .fab {
       position: fixed;
       right: 16px;
@@ -104,8 +104,12 @@
       z-index: 2000;
     }
     .fab:active { transform: translateY(1px); }
-    @media (min-width: 1024px) {
-      .fab { right: 24px; bottom: 24px; }
+
+    /* Hide floating button on desktop screens */
+    @media (min-width: 768px) {
+      .fab {
+        display: none !important;
+      }
     }
   </style>
 </head>
@@ -208,92 +212,21 @@
         </div>
       </div>
     </div>
-    <!-- End action row -->
   </article>
 </main>
 
-<!-- ✅ Floating Random FAB -->
+<!-- ✅ Floating Random FAB (mobile only) -->
 <button id="randomFab" class="fab" data-random="true" aria-label="Random story">🎲</button>
 
 <!-- App logic -->
 <script src="/static/app.js?v=14"></script>
 
-<!-- Connect the FAB to the main Random button -->
+<!-- Connect the FAB -->
 <script>
 (function(){
   const fab = document.getElementById('randomFab');
   const rnd = document.getElementById('randomBtn');
-  if (fab && rnd) {
-    fab.addEventListener('click', () => rnd.click());
-  }
-})();
-</script>
-
-<!-- GA4 custom events -->
-<script>
-(function () {
-  function onReady(fn){
-    if (document.readyState !== 'loading') fn();
-    else document.addEventListener('DOMContentLoaded', fn);
-  }
-  function gtagSafe(name, params){
-    try { if (typeof gtag === 'function') gtag('event', name, params || {}); }
-    catch(e){}
-  }
-
-  onReady(function () {
-    // Click tracking (Random / Share)
-    document.addEventListener('click', function (e) {
-      const t = e.target.closest('button, a');
-      if (!t) return;
-      if (t.id === 'randomBtn' || t.id === 'randomFab' || t.dataset.random === 'true') {
-        gtagSafe('random_post_click');
-      }
-      if (t.id === 'shareToggle') {
-        setTimeout(() => {
-          const menu = document.getElementById('shareMenu');
-          const opened = menu && getComputedStyle(menu).display !== 'none';
-          if (opened) gtagSafe('share_opened');
-        }, 0);
-      }
-      if (t.matches('[data-share]')) gtagSafe('share_clicked', { platform: t.dataset.share || 'share' });
-    });
-
-    // Post loaded + scroll depth
-    const titleEl = document.getElementById('title');
-    const textEl  = document.getElementById('text');
-    const linkEl  = document.getElementById('openLink');
-    let currentSig = '';
-    let scrollSentFor = '';
-
-    function signature() {
-      const title = (titleEl?.textContent || '').trim();
-      const body  = (textEl?.textContent || '').trim().slice(0, 160);
-      const href  = (linkEl?.getAttribute('href') || '').trim();
-      return title + '|' + body + '|' + href;
-    }
-    function firePostLoadedIfChanged() {
-      const s = signature();
-      if (s && s !== currentSig) {
-        currentSig = s;
-        scrollSentFor = '';
-        gtagSafe('post_loaded');
-      }
-    }
-    const moOpts = { childList: true, subtree: true, characterData: true };
-    if (titleEl) new MutationObserver(() => setTimeout(firePostLoadedIfChanged, 50)).observe(titleEl, moOpts);
-    if (textEl) new MutationObserver(() => setTimeout(firePostLoadedIfChanged, 50)).observe(textEl, moOpts);
-    window.addEventListener('load', () => setTimeout(firePostLoadedIfChanged, 250));
-
-    window.addEventListener('scroll', () => {
-      if (!currentSig || scrollSentFor === currentSig) return;
-      const threshold = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) * 0.75;
-      if ((window.scrollY + window.innerHeight) >= threshold) {
-        scrollSentFor = currentSig;
-        gtagSafe('scroll_depth', { value: 75 });
-      }
-    }, { passive: true });
-  });
+  if (fab && rnd) fab.addEventListener('click', () => rnd.click());
 })();
 </script>
 </body>
