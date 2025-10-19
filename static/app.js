@@ -305,3 +305,41 @@ window.addEventListener("DOMContentLoaded", () => {
 
 rangeSel.style.display = "none";
 setError("");
+
+// === Hard-enforce "Sort & Filters" button shrink-to-text (no side effects) ===
+(function enforceSortFiltersButtonSize() {
+  function apply(btn) {
+    if (!btn) return;
+    // Use inline styles with !important so nothing else can override this
+    const s = btn.style;
+    s.setProperty('display', 'inline-flex', 'important');     // shrink-to-fit + center
+    s.setProperty('align-items', 'center', 'important');
+    s.setProperty('gap', '6px', 'important');
+    s.setProperty('white-space', 'nowrap', 'important');
+    s.setProperty('width', 'auto', 'important');
+    s.setProperty('max-width', 'max-content', 'important');
+    s.setProperty('flex', '0 0 auto', 'important');           // stop flex-grow
+    s.setProperty('padding', '8px 14px', 'important');        // keep your spacing
+  }
+
+  function init() {
+    const btn = document.getElementById('sortFiltersBtn') || document.querySelector('.sort-filters');
+    if (!btn) return;
+
+    apply(btn);
+
+    // If anything later tries to change it (class/style), re-apply immediately
+    const mo = new MutationObserver(() => apply(btn));
+    mo.observe(btn, { attributes: true, attributeFilter: ['style', 'class'] });
+
+    // Re-apply on resize just in case layout scripts run then
+    window.addEventListener('resize', () => apply(btn), { passive: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
