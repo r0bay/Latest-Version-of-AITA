@@ -1,299 +1,307 @@
-/* Random AITA — app.js (drop-in)
-   - Mobile-first UI wiring for index.html provided earlier
-   - Reddit fetch, filters, TTS, Share, GA4 events, scroll-depth
-*/
+const titleEl = document.getElementById("title");
+const textEl  = document.getElementById("text");
+const metaEl  = document.getElementById("meta");
+const errorEl = document.getElementById("error");
+const openEl  = document.getElementById("openLink");
+const spinner = document.getElementById("spinner");
 
-/* ------------------------ Utilities ------------------------ */
-const $ = (sel, ctx = document) => ctx.querySelector(sel);
-const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const subSel    = document.getElementById("subreddit");
+const sortSel   = document.getElementById("sort");
+const rangeSel  = document.getElementById("topRange");
+const nsfwChk   = document.getElementById("nsfw");
+const searchBox = document.getElementById("searchBox");
+const searchBtn = document.getElementById("searchBtn");
 
-// GA4 safe sender
-function gtagSafe(name, params) {
-  try {
-    if (typeof gtag === "function") {
-      gtag("event", name, params || {});
-      console.log("[GA] sent:", name, params || {});
-    }
-  } catch (e) {
-    // no-op
+const randomBtn = document.getElementById("randomBtn");
+const speakBtn  = document.getElementById("speak");
+const pauseBtn  = document.getElementById("pause");
+
+const voteBlock = document.getElementById("voteBlock");
+const voteYTA = document.getElementById("voteYTA");
+const voteNTA = document.getElementById("voteNTA");
+const voteESH = document.getElementById("voteESH");
+const tallyEl = document.getElementById("tally");
+
+const shareToggle = document.getElementById("shareToggle");
+const shareMenu   = document.getElementById("shareMenu");
+
+const synth = window.speechSynthesis;
+let currentPost = null;
+
+// subs where we disable votes and suppress flair display
+const NO_VOTE_NO_FLAIR_SUBS = new Set(["twohottakes", "AmIOverreacting"]);
+
+function setLoading(isLoading) {
+  spinner.style.display = isLoading ? "inline-block" : "none";
+  if (randomBtn) randomBtn.disabled = isLoading;
+  errorEl.textContent = "";
+}
+function setError(msg) { errorEl.textContent = msg || ""; }
+
+function qs() {
+  const p = new URLSearchParams();
+  if (subSel.value) p.set("sub", subSel.value);
+  if (sortSel.value && sortSel.value !== "all") p.set("sort", sortSel.value);
+  if (sortSel.value === "top" && rangeSel.value) p.set("t", rangeSel.value);
+  if (nsfwChk.checked) p.set("nsfw", "1");
+  if (searchBox.value.trim()) p.set("q", searchBox.value.trim());
+  return p.toString();
+}
+
+function shouldHideVotesAndFlair(post) {
+  if (!post?.subreddit) return false;
+  // compare case-insensitively
+  return Array.from(NO_VOTE_NO_FLAIR_SUBS).some(s => s.toLowerCase() === post.subreddit.toLowerCase());
+}
+
+function setMetaPreVote(post) {
+  // if in the no-flair list → never show flair, only NSFW badge if applicable
+  if (shouldHideVotesAndFlair(post)) {
+    metaEl.textContent = post.over_18 ? "NSFW" : "";
+    return;
   }
+  metaEl.textContent = post.over_18 ? "NSFW" : "";
 }
 
-/* ------------------------ Elements ------------------------ */
-const els = {
-  title: $("#postTitle"),
-  body: $("#postBody"),
-  random: $("#randomBtn"),
-  openReddit: $("#openReddit"),
-  share: $("#shareToggle"),
-  yta: $("#btnYTA"),
-  nta: $("#btnNTA"),
-  esh: $("#btnESH"),
-  ttsRead: $("#ttsRead"),
-  ttsPause: $("#ttsPause"),
-  subSelect: $("#subSelect"),
-  sortSelect: $("#sortSelect"),
-  kw: $("#kw"),
-  nsfw: $("#nsfw"),
-  searchBtn: $("#searchBtn"),
-  filters: $("#filters"),
-};
-
-let currentPost = null; // {title, selftext, url, permalink, over_18}
-
-/* ------------------------ Reddit Fetch ------------------------ */
-/**
- * Fetch posts from Reddit JSON. Tries your backend first (if you have /api/random),
- * otherwise falls back to Reddit's public JSON endpoints.
- */
-async function fetchCandidatePosts({ subreddit, sort }) {
-  // 1) Optional: your backend route (comment out if not used)
-  // try {
-  //   const r = await fetch(`/api/random?sub=${encodeURIComponent(subreddit)}&sort=${encodeURIComponent(sort)}`);
-  //   if (r.ok) {
-  //     const data = await r.json();
-  //     if (Array.isArray(data?.posts) && data.posts.length) return data.posts;
-  //   }
-  // } catch {}
-
-  // 2) Public Reddit JSON (CORS-friendly)
-  const base = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}`;
-  let path = "hot.json?limit=50";
-  if (sort === "new") path = "new.json?limit=50";
-  if (sort === "top") path = "top.json?t=day&limit=50";
-
-  const url = `${base}/${path}`;
-  const res = await fetch(url, { headers: { "Accept": "application/json" } });
-  if (!res.ok) throw new Error(`Reddit fetch failed: ${res.status}`);
-  const json = await res.json();
-  const children = json?.data?.children || [];
-  return children.map(c => c.data);
-}
-
-function pickPost(posts, { allowNSFW, keyword }) {
-  // filter by NSFW + keyword if provided
-  let list = posts.filter(p => p && p.title && typeof p.title === "string");
-
-  if (!allowNSFW) list = list.filter(p => !p.over_18);
-
-  if (keyword && keyword.trim().length) {
-    const kw = keyword.trim().toLowerCase();
-    list = list.filter(p =>
-      (p.title || "").toLowerCase().includes(kw) ||
-      (p.selftext || "").toLowerCase().includes(kw)
-    );
+function setMetaPostVote(post) {
+  // if in the no-flair list → never show flair (still show NSFW tag)
+  if (shouldHideVotesAndFlair(post)) {
+    metaEl.textContent = post.over_18 ? "NSFW" : "";
+    return;
   }
-
-  if (!list.length) return null;
-  const idx = Math.floor(Math.random() * list.length);
-  const p = list[idx];
-
-  return {
-    title: p.title || "(no title)",
-    selftext: p.selftext || "",
-    url: p.url || "",
-    permalink: p.permalink ? `https://reddit.com${p.permalink}` : p.url || "",
-    over_18: !!p.over_18,
-  };
+  const verdictText = post.flair ? post.flair : "No verdict yet";
+  const nsfw = post.over_18 ? " • NSFW" : "";
+  metaEl.textContent = `Verdict: ${verdictText}${nsfw}`;
 }
 
-/* ------------------------ Render Post ------------------------ */
-function renderPost(post) {
+function toggleVotesVisibility(post) {
+  if (!voteBlock) return;
+  const hide = shouldHideVotesAndFlair(post);
+  voteBlock.style.display = hide ? "none" : "flex";
+  // also clear tally if hiding votes
+  if (hide) tallyEl.textContent = "";
+}
+
+function scrollToTop() {
+  const card = document.getElementById("postCard") || document.body;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function updateView(post, yourVote=null) {
   currentPost = post;
+  titleEl.textContent = post.title || "(no title)";
+  textEl.textContent  = post.text || "";
+  openEl.href = post.permalink || "#";
 
-  // Title
-  els.title.textContent = post.title;
+  // show/hide the voting area based on subreddit
+  toggleVotesVisibility(post);
 
-  // Body: split paragraphs nicely
-  const paragraphs = (post.selftext || "")
-    .trim()
-    .split(/\n{2,}/)
-    .map(s => s.trim())
-    .filter(Boolean);
+  // Clear tally until we know there are votes (and only if votes are shown)
+  tallyEl.textContent = "";
 
-  els.body.innerHTML = paragraphs.length
-    ? paragraphs.map(p => `<p>${escapeHTML(p)}</p>`).join("")
-    : `<p class="muted">(No body text)</p>`;
+  if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
+  // Only fetch results if votes are enabled (no need otherwise)
+  if (!shouldHideVotesAndFlair(post)) fetchResults();
 
-  // Open on Reddit link
-  els.openReddit.href = post.permalink || post.url || "#";
+  // Update URL to a shareable link (?id=POSTID&sub=SUB)
+  if (post?.id) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("id", post.id);
+    if (subSel.value) url.searchParams.set("sub", subSel.value);
+    history.replaceState({}, "", url.toString());
+  }
 
-  // Scroll to top (below sticky header)
-  window.scrollTo({ top: 0, behavior: "smooth" });
-
-  // Stop any ongoing TTS
-  stopTTS();
-
-  // GA: post_loaded
-  gtagSafe("post_loaded", { event_category: "content" });
-
-  // Reset scroll-depth tracking for this post
-  window._scrollDepthSent = false;
+  scrollToTop();
 }
 
-function escapeHTML(s) {
-  return s.replace(/[&<>"']/g, m => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[m]));
+// --------- Fetchers ----------
+async function fetchRandom() {
+  setLoading(true);
+  stopSpeech();
+  try {
+    const res = await fetch(`/api/random?${qs()}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 404 && data.message) setError(data.message);
+      else setError(data.error || `HTTP ${res.status}`);
+      return;
+    }
+    const { post, your_vote } = await res.json();
+    updateView(post, your_vote);
+  } catch (e) {
+    setError(String(e));
+  } finally {
+    setLoading(false);
+  }
 }
 
-/* ------------------------ Actions ------------------------ */
-async function loadRandom() {
-  const subreddit = els.subSelect?.value || "AmItheAsshole";
-  const sort = els.sortSelect?.value || "all";
-  const keyword = els.kw?.value || "";
-  const allowNSFW = !!els.nsfw?.checked;
+async function fetchById(pid) {
+  if (!pid) return fetchRandom();
+  setLoading(true);
+  stopSpeech();
+  try {
+    const res = await fetch(`/api/post?id=${encodeURIComponent(pid)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      return fetchRandom();
+    }
+    const { post, your_vote } = data;
+    updateView(post, your_vote);
+  } catch (e) {
+    fetchRandom();
+  } finally {
+    setLoading(false);
+  }
+}
+
+// --------- Voting ----------
+async function vote(which) {
+  if (!currentPost?.id) return;
+  // If votes are hidden for this sub, ignore clicks (shouldn't show, but safety)
+  if (shouldHideVotesAndFlair(currentPost)) return;
 
   try {
-    disableButtons(true);
-    gtagSafe("random_post_click", { event_category: "engagement" });
+    const res = await fetch("/api/vote", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ post_id: currentPost.id, vote: which })
+    });
+    const data = await res.json();
 
-    const posts = await fetchCandidatePosts({ subreddit, sort });
-    const picked = pickPost(posts, { allowNSFW, keyword });
-
-    if (!picked) {
-      els.title.textContent = "No matching posts found.";
-      els.body.innerHTML = `<p class="muted">Try changing filters or keywords.</p>`;
+    if (!data.ok && data.error === "already_voted") {
+      const y = data.counts?.YTA || 0;
+      const n = data.counts?.NTA || 0;
+      const e = data.counts?.ESH || 0;
+      const total = y + n + e;
+      tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
+      setMetaPostVote(currentPost);
+      setError("You can only vote once for this story.");
+      setTimeout(() => setError(""), 2000);
       return;
     }
 
-    renderPost(picked);
-  } catch (e) {
-    console.error(e);
-    els.title.textContent = "Error loading post";
-    els.body.innerHTML = `<p class="muted">${escapeHTML(String(e.message || e))}</p>`;
-  } finally {
-    disableButtons(false);
+    if (!res.ok || !data.ok) {
+      setError(data.error || `Vote failed (HTTP ${res.status})`);
+      return;
+    }
+
+    const y = data.counts?.YTA || 0;
+    const n = data.counts?.NTA || 0;
+    const e = data.counts?.ESH || 0;
+    const total = y + n + e;
+    tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
+    setMetaPostVote(currentPost);
+  } catch (err) {
+    setError(String(err));
   }
 }
 
-function disableButtons(disabled) {
-  [els.random, els.yta, els.nta, els.esh, els.searchBtn].forEach(b => { if (b) b.disabled = disabled; });
+async function fetchResults() {
+  if (!currentPost?.id) return;
+  if (shouldHideVotesAndFlair(currentPost)) return;
+  try {
+    const res = await fetch(`/api/results?post_id=${encodeURIComponent(currentPost.id)}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok) return;
+    const y = data.counts?.YTA || 0;
+    const n = data.counts?.NTA || 0;
+    const e = data.counts?.ESH || 0;
+    const total = y + n + e;
+    tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
+    if (data.your_vote) setMetaPostVote(currentPost);
+  } catch {}
 }
 
-/* Verdicts (no backend store; GA only) */
-function onVerdict(name) {
+// --------- Speech ----------
+function stopSpeech() { synth.cancel(); pauseBtn.textContent = "⏸️ Pause"; }
+function readAloud() {
   if (!currentPost) return;
-  gtagSafe("verdict_clicked", {
-    event_category: "engagement",
-    verdict: name,
-    post_title: truncate(currentPost.title, 96),
-    permalink: currentPost.permalink || ""
-  });
+  stopSpeech();
+  const u = new SpeechSynthesisUtterance(`${currentPost.title}. ${currentPost.text}`);
+  synth.speak(u);
+  pauseBtn.textContent = "⏸️ Pause";
 }
-
-function truncate(s, n) {
-  if (!s) return s;
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
-}
-
-/* Share button (also tracked) */
-async function onShare() {
-  try {
-    const url = currentPost?.permalink || location.href;
-    const title = currentPost?.title || document.title;
-    if (navigator.share) {
-      await navigator.share({ title, url });
-      gtagSafe("share_clicked", { event_category: "engagement", platform: "web_share" });
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(url);
-      gtagSafe("share_clicked", { event_category: "engagement", platform: "clipboard" });
-      flashShareCopied();
-    }
-  } catch (e) {
-    // user cancelled — ignore
+function pauseOrResume() {
+  if (synth.speaking && !synth.paused) {
+    synth.pause(); pauseBtn.textContent = "▶️ Resume";
+  } else if (synth.paused) {
+    synth.resume(); pauseBtn.textContent = "⏸️ Pause";
   }
 }
 
-function flashShareCopied() {
-  const btn = els.share;
-  if (!btn) return;
-  const old = btn.textContent;
-  btn.textContent = "Copied!";
-  setTimeout(() => btn.textContent = old, 1200);
+// --------- Share ----------
+function yourPostUrl() {
+  const url = new URL(window.location.origin);
+  if (currentPost?.id) url.searchParams.set("id", currentPost.id);
+  if (subSel.value) url.searchParams.set("sub", subSel.value);
+  return url.toString();
 }
-
-/* ------------------------ Text-to-Speech ------------------------ */
-let speaking = false;
-function speakText(text) {
-  try {
-    stopTTS(); // reset first
-    if (!text || !window.speechSynthesis) return;
-
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.0;
-    utter.pitch = 1.0;
-    utter.onend = () => { speaking = false; };
-    speaking = true;
-    window.speechSynthesis.speak(utter);
-  } catch {
-    // ignore
+function shareTextAndUrl() {
+  const url = yourPostUrl();
+  const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this story`;
+  return { text, url };
+}
+function openShare(url) { window.open(url, "_blank", "noopener,noreferrer"); }
+function handleShare(action) {
+  const { text, url } = shareTextAndUrl();
+  if (!action) return;
+  switch (action) {
+    case "whatsapp": openShare(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`); break;
+    case "facebook": openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`); break;
+    case "twitter":  openShare(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`); break;
+    case "reddit":   openShare(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`); break;
+    case "sms":      window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`; break;
   }
 }
+shareToggle.addEventListener("click", e => { e.stopPropagation(); shareMenu.style.display = shareMenu.style.display === "block" ? "none" : "block"; });
+shareMenu.addEventListener("click", e => { const btn = e.target.closest("button"); if (!btn) return; handleShare(btn.dataset.share); shareMenu.style.display = "none"; });
+document.addEventListener("click", () => shareMenu.style.display = "none");
 
-function pauseTTS() {
-  try {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel(); // use cancel() as "pause/stop" for reliability on iOS
-    speaking = false;
-  } catch {}
-}
+// --------- Events ----------
+randomBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
+searchBtn.addEventListener("click", fetchRandom);
+searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
 
-function stopTTS() {
-  try {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    speaking = false;
-  } catch {}
-}
+speakBtn.addEventListener("click", readAloud);
+pauseBtn.addEventListener("click", pauseOrResume);
 
-/* ------------------------ Scroll-depth (75%) ------------------------ */
-function onScrollDepth() {
-  try {
-    const doc = document.documentElement;
-    const scrolled = (window.scrollY + window.innerHeight) / doc.scrollHeight;
-    if (scrolled > 0.75 && !window._scrollDepthSent) {
-      window._scrollDepthSent = true;
-      gtagSafe("scroll_depth", { event_category: "engagement", value: 75 });
+sortSel.addEventListener("change", () => {
+  rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
+});
+subSel.addEventListener("change", () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("sub", subSel.value);
+  url.searchParams.delete("id");
+  history.replaceState({}, "", url.toString());
+  fetchRandom();
+});
+
+voteYTA.addEventListener("click", () => vote("YTA"));
+voteNTA.addEventListener("click", () => vote("NTA"));
+voteESH.addEventListener("click", () => vote("ESH"));
+
+// --------- Initial load ----------
+window.addEventListener("DOMContentLoaded", () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const sub = urlParams.get("sub");
+  if (sub && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
+    subSel.value = Array.from(subSel.options).find(o => o.value.toLowerCase() === sub.toLowerCase()).value;
+  }
+
+  const pid = urlParams.get("id");
+
+  // Wait briefly to ensure everything is ready, then load the first story
+  setTimeout(() => {
+    if (pid) {
+      fetchById(pid);
+    } else {
+      fetchRandom().catch(() => {
+        // Retry once after 1.5s if backend was cold-starting
+        setTimeout(fetchRandom, 1500);
+      });
     }
-  } catch {}
-}
+  }, 400);
+});
 
-/* ------------------------ Wiring ------------------------ */
-function bindEvents() {
-  els.random?.addEventListener("click", loadRandom);
-  els.searchBtn?.addEventListener("click", loadRandom);
-
-  els.yta?.addEventListener("click", () => onVerdict("YTA"));
-  els.nta?.addEventListener("click", () => onVerdict("NTA"));
-  els.esh?.addEventListener("click", () => onVerdict("ESH"));
-
-  els.share?.addEventListener("click", onShare);
-
-  els.ttsRead?.addEventListener("click", () => {
-    const text = `${currentPost?.title || ""}\n\n${els.body?.innerText || ""}`;
-    speakText(text);
-  });
-  els.ttsPause?.addEventListener("click", pauseTTS);
-
-  // Change of subreddit/sort should refresh when user taps Search/Random
-  els.subSelect?.addEventListener("change", () => {/* no auto load to avoid surprises */});
-  els.sortSelect?.addEventListener("change", () => {/* same */});
-
-  window.addEventListener("scroll", onScrollDepth, { passive: true });
-}
-
-/* ------------------------ Init ------------------------ */
-async function init() {
-  bindEvents();
-  // Load the first post on initial visit
-  await loadRandom();
-}
-
-document.addEventListener("DOMContentLoaded", init);
-
-/* ------------------------ Expose for debugging ------------------------ */
-window.randomAITA = {
-  loadRandom, onShare, onVerdict, speakText, pauseTTS, stopTTS
-};
+rangeSel.style.display = "none";
+setError("");
