@@ -75,11 +75,21 @@ h2 {
   margin-top: 10px; 
 }
 
-/* === Fix Sort & Filters Button Width === */
+/* === Force "Sort & Filters" button to shrink to text === */
 #sortFiltersBtn,
 .sort-filters {
-  display: inline-block;
-  width: auto;
+  display: inline-flex;      /* shrink-to-fit + vertical centering */
+  align-items: center;
+  gap: 6px;
   padding: 8px 14px;
   white-space: nowrap;
+  width: auto !important;    /* override any width:100% */
+  max-width: max-content;    /* hug text */
+  flex: 0 0 auto !important; /* don’t grow in flex containers */
+}
+
+/* If it's inside your header controls, double down on stopping flex growth */
+header .controls #sortFiltersBtn,
+header .controls .sort-filters {
+  flex: 0 0 auto !important;
 }
