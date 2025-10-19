@@ -78,7 +78,7 @@
     .tip-btn:hover { background:#f2f2f2; }
     .tip-note { color:#666; font-size:.9rem; margin-top:4px; }
 
-    /* ✅ Floating Random button (mobile only) — one-time pulse */
+    /* Floating Random button (mobile only) — one-time pulse */
     .fab{
       position:fixed;
       right:16px;
@@ -128,7 +128,7 @@
       </div>
     </div>
 
-    <!-- Sort + Search (restored simple dropdown layout) -->
+    <!-- Sort + Search (original layout) -->
     <div class="controls">
       <div class="row">
         <label for="sort">Sort</label>
@@ -167,7 +167,7 @@
     <p id="text" class="body"></p>
     <div class="meta" id="meta"></div>
 
-    <!-- Voting (hidden on 2HT/AOR by your JS) -->
+    <!-- Voting (hidden on selected subs by your app.js) -->
     <div class="vote" id="voteBlock">
       <button id="voteYTA">They’re the Asshole (YTA)</button>
       <button id="voteNTA">Not the Asshole (NTA)</button>
@@ -175,7 +175,7 @@
       <span class="tally" id="tally"></span>
     </div>
 
-    <!-- Action row under story (desktop keeps this Random button) -->
+    <!-- Under-story actions (desktop keeps this Random button) -->
     <div class="under-actions">
       <button id="randomBtn">🎲 Random</button>
       <div class="right-actions">
@@ -198,22 +198,39 @@
 <!-- Floating Random (mobile only) -->
 <button class="fab" id="floatingRandom" aria-label="Random">🎲</button>
 
-<!-- your main logic -->
-<script src="/static/app.js?v=15"></script>
+<!-- Your main logic (keep version bump to refresh cache if needed) -->
+<script src="/static/app.js?v=16"></script>
 
-<!-- Ensure a story loads immediately on first visit -->
+<!-- Robust first-load helper: waits for app.js to bind, then clicks Random -->
 <script>
-  // Click "Random" once after DOM is ready if no story is present yet
-  document.addEventListener('DOMContentLoaded', function () {
-    const textEl = document.getElementById('text');
-    const needsFirstLoad = !textEl || !textEl.textContent.trim();
-    if (needsFirstLoad) {
-      const btn = document.getElementById('randomBtn') || document.getElementById('floatingRandom');
-      if (btn) btn.click();
-    }
-  });
+  (function autoLoadOnce() {
+    const titleEl = document.getElementById('title');
+    const textEl  = document.getElementById('text');
+    const getRandomBtn = () => document.getElementById('randomBtn') || document.getElementById('floatingRandom');
 
-  // GA4 custom events (unchanged)
+    // If content already present (e.g., navigation), don't trigger
+    if (textEl && textEl.textContent.trim() && !/Loading first story/i.test(titleEl?.textContent || '')) return;
+
+    let tries = 0;
+    const maxTries = 12; // ~3.6s
+    const tryClick = () => {
+      const btn = getRandomBtn();
+      if (btn) btn.click();
+
+      // Check if text filled; if not, retry a few times
+      setTimeout(() => {
+        if (textEl && textEl.textContent.trim()) return;
+        if (++tries < maxTries) setTimeout(tryClick, 300);
+      }, 300);
+    };
+
+    // Start after window load so app.js has time to attach listeners
+    window.addEventListener('load', () => setTimeout(tryClick, 200));
+  })();
+</script>
+
+<!-- GA4 custom events (unchanged) -->
+<script>
   (function () {
     function gtagSafe(name, params) {
       try { if (typeof gtag === 'function') gtag('event', name, params || {}); } catch (e) {}
