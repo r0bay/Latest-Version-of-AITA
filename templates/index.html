@@ -104,12 +104,8 @@
       z-index: 2000;
     }
     .fab:active { transform: translateY(1px); }
-
-    /* Hide floating button on desktop screens */
     @media (min-width: 768px) {
-      .fab {
-        display: none !important;
-      }
+      .fab { display: none !important; }
     }
   </style>
 </head>
@@ -203,6 +199,8 @@
         <div class="share-wrap">
           <button id="shareToggle">Share ▾</button>
           <div class="share-menu" id="shareMenu">
+            <!-- Fallback menu (desktop/old browsers) -->
+            <button data-share="copy">🔗 Copy link</button>
             <button data-share="whatsapp">🟢 WhatsApp</button>
             <button data-share="facebook">🔵 Facebook</button>
             <button data-share="twitter">✖️ Twitter (X)</button>
@@ -215,15 +213,94 @@
   </article>
 </main>
 
-<!-- ✅ Floating Random FAB (mobile only) -->
+<!-- Floating Random FAB (mobile only) -->
 <button id="randomFab" class="fab" data-random="true" aria-label="Random story">🎲</button>
 
 <!-- App logic -->
 <script src="/static/app.js?v=14"></script>
 
-<!-- Connect the FAB -->
+<!-- Share: prefer native sheet; fallback to dropdown -->
 <script>
-(function(){
+(function () {
+  function gtagSafe(name, params){
+    try { if (typeof gtag === 'function') gtag('event', name, params || {}); } catch(e){}
+  }
+
+  function getSharePayload() {
+    const title = (document.getElementById('title')?.textContent || 'Random AITA').trim();
+    const redditUrl = document.getElementById('openLink')?.getAttribute('href') || '';
+    // Always share YOUR site, not reddit:
+    const url = location.origin + '/?r=' + encodeURIComponent(redditUrl || '');
+    const text = 'Reading on RandomAITA:';
+    return { title, text, url };
+  }
+
+  const shareBtn  = document.getElementById('shareToggle');
+  const shareMenu = document.getElementById('shareMenu');
+
+  function toggleMenu(show){
+    shareMenu.style.display = show ? 'block' : 'none';
+  }
+
+  // Click outside closes fallback menu
+  document.addEventListener('click', (e) => {
+    if (!shareMenu) return;
+    const inside = e.target.closest('.share-wrap');
+    if (!inside) toggleMenu(false);
+  });
+
+  // Main Share button: try native first
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      const payload = getSharePayload();
+
+      // Native share if supported
+      try {
+        const canNative = !!navigator.share;
+        if (canNative) {
+          await navigator.share(payload);
+          gtagSafe('share_clicked', { platform: 'native' });
+          return;
+        }
+      } catch (err) {
+        // user canceled or error -> fall back to menu
+      }
+
+      // Fallback menu (desktop/old browsers)
+      toggleMenu(getComputedStyle(shareMenu).display === 'none');
+      gtagSafe('share_opened');
+    });
+  }
+
+  // Fallback menu options
+  shareMenu?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-share]');
+    if (!btn) return;
+    const { title, text, url } = getSharePayload();
+    const which = btn.dataset.share;
+
+    if (which === 'copy') {
+      navigator.clipboard?.writeText(url);
+      toggleMenu(false);
+      gtagSafe('share_clicked', { platform: 'copy' });
+      return;
+    }
+
+    const encoded = encodeURIComponent;
+    let href = url;
+
+    if (which === 'whatsapp') href = 'https://api.whatsapp.com/send?text=' + encoded(title + ' ' + url);
+    if (which === 'facebook') href = 'https://www.facebook.com/sharer/sharer.php?u=' + encoded(url);
+    if (which === 'twitter') href = 'https://twitter.com/intent/tweet?text=' + encoded(title) + '&url=' + encoded(url);
+    if (which === 'reddit')  href = 'https://www.reddit.com/submit?url=' + encoded(url) + '&title=' + encoded(title);
+    if (which === 'sms')     href = 'sms:?&body=' + encoded(title + ' ' + url);
+
+    window.open(href, '_blank', 'noopener');
+    toggleMenu(false);
+    gtagSafe('share_clicked', { platform: which });
+  });
+
+  // Floating FAB clicks the main Random button (keeps your current logic)
   const fab = document.getElementById('randomFab');
   const rnd = document.getElementById('randomBtn');
   if (fab && rnd) fab.addEventListener('click', () => rnd.click());
