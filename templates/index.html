@@ -69,7 +69,7 @@
     .tip-btn:hover { background: #f2f2f2; }
     .tip-note { color:#666; font-size:.9rem; margin-top:4px; }
 
-    /* Sort & Filters submenu (compact, “normal” button) */
+    /* Sort & Filters submenu (compact button) */
     details.filters { width: fit-content; }
     details.filters > summary {
       list-style: none;
@@ -80,9 +80,7 @@
       user-select: none;
     }
     details.filters > summary::-webkit-details-marker { display: none; }
-    details.filters > summary::after {
-      content: "▾"; font-size: 0.9rem; opacity: .7;
-    }
+    details.filters > summary::after { content: "▾"; font-size: 0.9rem; opacity: .7; }
     details.filters[open] > summary::after { transform: rotate(180deg); }
     .filters-panel {
       margin-top: 10px;
@@ -90,7 +88,25 @@
       border: 1px solid #eee; border-radius: 12px; background: #fafafa;
       display: grid; gap: 10px;
     }
-    .filters-panel .row { align-items: center; }
+
+    /* ✅ Floating Random button (follows scroll) */
+    .fab {
+      position: fixed;
+      right: 16px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      border: 1px solid #ddd;
+      background: #ffffff;
+      box-shadow: 0 6px 16px rgba(0,0,0,.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px;
+      z-index: 2000;
+    }
+    .fab:active { transform: translateY(1px); }
+    @media (min-width: 1024px) {
+      .fab { right: 24px; bottom: 24px; }
+    }
   </style>
 </head>
 
@@ -118,7 +134,7 @@
       </div>
     </div>
 
-    <!-- ✅ Sort & Filters submenu -->
+    <!-- Sort & Filters submenu -->
     <details class="filters" id="filters" aria-label="Sort and Filters">
       <summary>Sort &amp; Filters</summary>
       <div class="filters-panel">
@@ -150,7 +166,7 @@
       </div>
     </details>
 
-    <!-- Keep Read/Pause outside the submenu -->
+    <!-- Read/Pause -->
     <div class="row" style="margin-top:6px;">
       <button id="speak">🔊 Read</button>
       <button id="pause">⏸️ Pause</button>
@@ -165,7 +181,7 @@
     <p id="text" class="body"></p>
     <div class="meta" id="meta"></div>
 
-    <!-- Voting block (JS hides it for specified subs) -->
+    <!-- Voting block -->
     <div class="vote" id="voteBlock">
       <button id="voteYTA">They’re the Asshole (YTA)</button>
       <button id="voteNTA">Not the Asshole (NTA)</button>
@@ -196,8 +212,22 @@
   </article>
 </main>
 
+<!-- ✅ Floating Random FAB -->
+<button id="randomFab" class="fab" data-random="true" aria-label="Random story">🎲</button>
+
 <!-- App logic -->
 <script src="/static/app.js?v=14"></script>
+
+<!-- Connect the FAB to the main Random button -->
+<script>
+(function(){
+  const fab = document.getElementById('randomFab');
+  const rnd = document.getElementById('randomBtn');
+  if (fab && rnd) {
+    fab.addEventListener('click', () => rnd.click());
+  }
+})();
+</script>
 
 <!-- GA4 custom events -->
 <script>
@@ -207,12 +237,8 @@
     else document.addEventListener('DOMContentLoaded', fn);
   }
   function gtagSafe(name, params){
-    try {
-      if (typeof gtag === 'function') {
-        gtag('event', name, params || {});
-        console.log('[GA] sent:', name, params || {});
-      }
-    } catch (e) { console.warn('[GA error]', e); }
+    try { if (typeof gtag === 'function') gtag('event', name, params || {}); }
+    catch(e){}
   }
 
   onReady(function () {
@@ -220,8 +246,7 @@
     document.addEventListener('click', function (e) {
       const t = e.target.closest('button, a');
       if (!t) return;
-
-      if (t.id === 'randomBtn' || t.dataset.random === 'true') {
+      if (t.id === 'randomBtn' || t.id === 'randomFab' || t.dataset.random === 'true') {
         gtagSafe('random_post_click');
       }
       if (t.id === 'shareToggle') {
@@ -231,12 +256,10 @@
           if (opened) gtagSafe('share_opened');
         }, 0);
       }
-      if (t.matches('[data-share]')) {
-        gtagSafe('share_clicked', { platform: t.dataset.share || 'share' });
-      }
+      if (t.matches('[data-share]')) gtagSafe('share_clicked', { platform: t.dataset.share || 'share' });
     });
 
-    // Post loaded detection
+    // Post loaded + scroll depth
     const titleEl = document.getElementById('title');
     const textEl  = document.getElementById('text');
     const linkEl  = document.getElementById('openLink');
@@ -257,13 +280,11 @@
         gtagSafe('post_loaded');
       }
     }
-
     const moOpts = { childList: true, subtree: true, characterData: true };
     if (titleEl) new MutationObserver(() => setTimeout(firePostLoadedIfChanged, 50)).observe(titleEl, moOpts);
     if (textEl) new MutationObserver(() => setTimeout(firePostLoadedIfChanged, 50)).observe(textEl, moOpts);
     window.addEventListener('load', () => setTimeout(firePostLoadedIfChanged, 250));
 
-    // Scroll depth @ 75% once per post
     window.addEventListener('scroll', () => {
       if (!currentSig || scrollSentFor === currentSig) return;
       const threshold = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) * 0.75;
