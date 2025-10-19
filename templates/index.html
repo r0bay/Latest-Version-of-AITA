@@ -51,6 +51,7 @@
     .vote { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; margin-top: 12px; }
     .vote .tally { color: #333; font-size: .95rem; }
     .toggle { display:flex; align-items:center; gap:6px; }
+
     .share-wrap { position: relative; display: inline-block; }
     .share-menu {
       position: absolute; top: 105%; right: 0;
@@ -137,12 +138,12 @@
   <div class="spinner" id="spinner"></div>
   <div id="error" class="error"></div>
 
-  <article class="card" id="postCard" data-post-id="1">
+  <article class="card" id="postCard">
     <h2 id="title">Loading first story…</h2>
     <p id="text" class="body"></p>
     <div class="meta" id="meta"></div>
 
-    <!-- voting block -->
+    <!-- Voting block (JS hides it for specified subs) -->
     <div class="vote" id="voteBlock">
       <button id="voteYTA">They’re the Asshole (YTA)</button>
       <button id="voteNTA">Not the Asshole (NTA)</button>
@@ -152,7 +153,6 @@
 
     <!-- Under-story action row -->
     <div class="under-actions">
-      <!-- Random button (analytics listens for data-random or this id) -->
       <button id="randomBtn" data-random="true">🎲 Random</button>
 
       <div class="right-actions">
@@ -173,100 +173,90 @@
   </article>
 </main>
 
-<!-- Your existing site JS (fetch, voting, share menu, etc.) -->
+<!-- Your app logic -->
 <script src="/static/app.js?v=14"></script>
 
-<!-- Lightweight GA4 event wiring (no breaking changes) -->
+<!-- GA4 custom events (random/share/post_loaded/scroll_depth) -->
 <script>
-(function(){
-  // helper
-  function safeGtag(name, params){ try{ if (typeof gtag==='function') gtag('event',name,params||{}); }catch(e){} }
-
-  // Random button
-  const randBtn = document.getElementById('randomBtn');
-  if (randBtn) {
-    randBtn.addEventListener('click', () => {
-      safeGtag('random_post_click', { event_category: 'engagement' });
-    });
+(function () {
+  function onReady(fn){
+    if (document.readyState !== 'loading') fn();
+    else document.addEventListener('DOMContentLoaded', fn);
+  }
+  function gtagSafe(name, params){
+    try {
+      if (typeof gtag === 'function') {
+        gtag('event', name, params || {});
+        console.log('[GA] sent:', name, params || {});
+      }
+    } catch (e) { console.warn('[GA error]', e); }
   }
 
-  // Share dropdown opened / closed
-  const shareToggle = document.getElementById('shareToggle');
-  const shareMenu   = document.getElementById('shareMenu');
-  if (shareToggle && shareMenu) {
-    shareToggle.addEventListener('click', () => {
-      // Let your app.js toggle first, then inspect visibility
-      setTimeout(() => {
-        const visible = getComputedStyle(shareMenu).display !== 'none';
-        safeGtag(visible ? 'share_opened' : 'share_closed', { event_category: 'ui' });
-      }, 0);
-    });
-  }
+  onReady(function () {
+    // Click tracking (Random / Share)
+    document.addEventListener('click', function (e) {
+      const t = e.target.closest('button, a');
+      if (!t) return;
 
-  // Share item clicks (delegated)
-  document.addEventListener('click', (e) => {
-    const t = e.target;
-    if (t && t.matches('[data-share]')) {
-      const platform = t.getAttribute('data-share') || 'share';
-      safeGtag('share_clicked', { event_category: 'social', event_label: platform });
+      if (t.id === 'randomBtn' || t.dataset.random === 'true') {
+        gtagSafe('random_post_click', { event_category: 'engagement' });
+      }
+      if (t.id === 'shareToggle') {
+        setTimeout(function () {
+          const menu = document.getElementById('shareMenu');
+          const opened = menu && getComputedStyle(menu).display !== 'none';
+          if (opened) gtagSafe('share_opened', { event_category: 'ui' });
+        }, 0);
+      }
+      if (t.matches('[data-share]')) {
+        const platform = t.getAttribute('data-share') || 'share';
+        gtagSafe('share_clicked', { event_category: 'social', event_label: platform });
+      }
+    }, true);
+
+    // Post loaded detection
+    const titleEl = document.getElementById('title');
+    const textEl  = document.getElementById('text');
+    const linkEl  = document.getElementById('openLink');
+    function signature() {
+      const title = (titleEl?.textContent || '').trim();
+      const body  = (textEl?.textContent || '').trim().slice(0, 160);
+      const href  = (linkEl?.getAttribute('href') || '').trim();
+      return title + '|' + body + '|' + href;
     }
+    let currentSig = '';
+    let scrollSentFor = '';
+
+    function firePostLoadedIfChanged() {
+      const s = signature();
+      if (s && s !== currentSig) {
+        currentSig = s;
+        scrollSentFor = '';
+        gtagSafe('post_loaded', { event_category: 'content' });
+      }
+    }
+
+    const moOpts = { childList: true, subtree: true, characterData: true };
+    if (titleEl) new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(titleEl, moOpts);
+    if (textEl)  new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(textEl,  moOpts);
+    window.addEventListener('load', () => setTimeout(firePostLoadedIfChanged, 250));
+
+    // Scroll depth @ 75% once per post
+    function pageHeight(){
+      return Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+    }
+    function viewportBottom(){
+      return (window.scrollY || window.pageYOffset || 0) + (window.innerHeight || 0);
+    }
+    window.addEventListener('scroll', function () {
+      if (!currentSig || scrollSentFor === currentSig) return;
+      const threshold = pageHeight() * 0.75;
+      if (viewportBottom() >= threshold) {
+        scrollSentFor = currentSig;
+        gtagSafe('scroll_depth', { event_category: 'engagement', value: 75 });
+      }
+    }, { passive: true });
   });
-
-  // ----- Post loaded + scroll depth (75%) -----
-  const titleEl = document.getElementById('title');
-  const textEl  = document.getElementById('text');
-  const linkEl  = document.getElementById('openLink');
-
-  function signature() {
-    const title = (titleEl?.textContent || '').trim();
-    const body  = (textEl?.textContent || '').trim().slice(0, 200);
-    const href  = (linkEl?.getAttribute('href') || '').trim();
-    return title + '|' + body + '|' + href;
-  }
-
-  let currentSig = '';
-  let scrollFiredSig = '';
-
-  function firePostLoadedIfChanged() {
-    const sig = signature();
-    if (sig && sig !== currentSig) {
-      currentSig = sig;
-      scrollFiredSig = '';
-      safeGtag('post_loaded', { event_category: 'content' });
-    }
-  }
-
-  // Mutation observers to detect content change
-  const moOpts = { childList: true, subtree: true, characterData: true };
-  if (titleEl) new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(titleEl, moOpts);
-  if (textEl)  new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(textEl,  moOpts);
-
-  // Initial check (first load)
-  window.addEventListener('load', () => setTimeout(firePostLoadedIfChanged, 250));
-
-  // Scroll depth @ 75% once per post
-  function pageHeight(){
-    return Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight
-    );
-  }
-  function viewportBottom(){
-    return (window.scrollY || window.pageYOffset || 0) + (window.innerHeight || 0);
-  }
-  function onScroll(){
-    if (!currentSig) return;
-    if (scrollFiredSig === currentSig) return;
-    const threshold = pageHeight() * 0.75;
-    if (viewportBottom() >= threshold) {
-      scrollFiredSig = currentSig;
-      safeGtag('scroll_depth', { event_category: 'engagement', value: 75 });
-    }
-  }
-  window.addEventListener('scroll', onScroll, { passive: true });
-
-  // Optional hook your JS can call after it finishes rendering a post:
-  window.__gaPostLoaded = firePostLoadedIfChanged;
 })();
 </script>
 </body>
