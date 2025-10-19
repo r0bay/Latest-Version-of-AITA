@@ -71,6 +71,7 @@
     .tip-note { color:#666; font-size:.9rem; margin-top:4px; }
   </style>
 </head>
+
 <body>
 <main>
   <header>
@@ -136,12 +137,12 @@
   <div class="spinner" id="spinner"></div>
   <div id="error" class="error"></div>
 
-  <article class="card" id="postCard">
+  <article class="card" id="postCard" data-post-id="1">
     <h2 id="title">Loading first story…</h2>
     <p id="text" class="body"></p>
     <div class="meta" id="meta"></div>
 
-    <!-- voting block (kept for AITA; JS hides it for specified subs) -->
+    <!-- voting block -->
     <div class="vote" id="voteBlock">
       <button id="voteYTA">They’re the Asshole (YTA)</button>
       <button id="voteNTA">Not the Asshole (NTA)</button>
@@ -151,7 +152,8 @@
 
     <!-- Under-story action row -->
     <div class="under-actions">
-      <button id="randomBtn">🎲 Random</button>
+      <!-- Random button (analytics listens for data-random or this id) -->
+      <button id="randomBtn" data-random="true">🎲 Random</button>
 
       <div class="right-actions">
         <a id="openLink" target="_blank" rel="noopener"><button>Open on Reddit</button></a>
@@ -168,11 +170,104 @@
         </div>
       </div>
     </div>
-    <!-- End action row -->
   </article>
 </main>
 
-<!-- keep your current app.js (with vote-hiding logic, share, scroll-to-top, etc.) -->
+<!-- Your existing site JS (fetch, voting, share menu, etc.) -->
 <script src="/static/app.js?v=14"></script>
+
+<!-- Lightweight GA4 event wiring (no breaking changes) -->
+<script>
+(function(){
+  // helper
+  function safeGtag(name, params){ try{ if (typeof gtag==='function') gtag('event',name,params||{}); }catch(e){} }
+
+  // Random button
+  const randBtn = document.getElementById('randomBtn');
+  if (randBtn) {
+    randBtn.addEventListener('click', () => {
+      safeGtag('random_post_click', { event_category: 'engagement' });
+    });
+  }
+
+  // Share dropdown opened / closed
+  const shareToggle = document.getElementById('shareToggle');
+  const shareMenu   = document.getElementById('shareMenu');
+  if (shareToggle && shareMenu) {
+    shareToggle.addEventListener('click', () => {
+      // Let your app.js toggle first, then inspect visibility
+      setTimeout(() => {
+        const visible = getComputedStyle(shareMenu).display !== 'none';
+        safeGtag(visible ? 'share_opened' : 'share_closed', { event_category: 'ui' });
+      }, 0);
+    });
+  }
+
+  // Share item clicks (delegated)
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.matches('[data-share]')) {
+      const platform = t.getAttribute('data-share') || 'share';
+      safeGtag('share_clicked', { event_category: 'social', event_label: platform });
+    }
+  });
+
+  // ----- Post loaded + scroll depth (75%) -----
+  const titleEl = document.getElementById('title');
+  const textEl  = document.getElementById('text');
+  const linkEl  = document.getElementById('openLink');
+
+  function signature() {
+    const title = (titleEl?.textContent || '').trim();
+    const body  = (textEl?.textContent || '').trim().slice(0, 200);
+    const href  = (linkEl?.getAttribute('href') || '').trim();
+    return title + '|' + body + '|' + href;
+  }
+
+  let currentSig = '';
+  let scrollFiredSig = '';
+
+  function firePostLoadedIfChanged() {
+    const sig = signature();
+    if (sig && sig !== currentSig) {
+      currentSig = sig;
+      scrollFiredSig = '';
+      safeGtag('post_loaded', { event_category: 'content' });
+    }
+  }
+
+  // Mutation observers to detect content change
+  const moOpts = { childList: true, subtree: true, characterData: true };
+  if (titleEl) new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(titleEl, moOpts);
+  if (textEl)  new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(textEl,  moOpts);
+
+  // Initial check (first load)
+  window.addEventListener('load', () => setTimeout(firePostLoadedIfChanged, 250));
+
+  // Scroll depth @ 75% once per post
+  function pageHeight(){
+    return Math.max(
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight
+    );
+  }
+  function viewportBottom(){
+    return (window.scrollY || window.pageYOffset || 0) + (window.innerHeight || 0);
+  }
+  function onScroll(){
+    if (!currentSig) return;
+    if (scrollFiredSig === currentSig) return;
+    const threshold = pageHeight() * 0.75;
+    if (viewportBottom() >= threshold) {
+      scrollFiredSig = currentSig;
+      safeGtag('scroll_depth', { event_category: 'engagement', value: 75 });
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  // Optional hook your JS can call after it finishes rendering a post:
+  window.__gaPostLoaded = firePostLoadedIfChanged;
+})();
+</script>
 </body>
 </html>
