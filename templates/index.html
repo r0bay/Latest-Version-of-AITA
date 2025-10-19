@@ -34,9 +34,7 @@
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 0; background: #fafafa; color: #111; }
     main { max-width: 900px; margin: 32px auto; padding: 0 16px; }
     header { display: grid; gap: var(--gap); margin-bottom: 16px; }
-    .controls, .controls2 { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
     .row { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
-    .space { flex: 1; }
     .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 16px; padding: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.03); }
     h1 { font-size: 1.6rem; margin: 0; display:flex; align-items:center; gap:8px;}
     h2 { font-size: 1.25rem; margin-top: 0; }
@@ -50,8 +48,8 @@
     .error { color: #b00020; font-size: .95rem; min-height: 1.2em; }
     .vote { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; margin-top: 12px; }
     .vote .tally { color: #333; font-size: .95rem; }
-    .toggle { display:flex; align-items:center; gap:6px; }
 
+    /* Share dropdown */
     .share-wrap { position: relative; display: inline-block; }
     .share-menu {
       position: absolute; top: 105%; right: 0;
@@ -61,28 +59,38 @@
     }
     .share-menu button { display: block; width: 100%; text-align: left; margin: 2px 0; }
 
+    /* Under-story actions */
     .under-actions { display: flex; align-items: center; gap: var(--gap); margin-top: 12px; }
     .right-actions { margin-left: auto; display: flex; gap: var(--gap); align-items: center; }
 
+    /* Buy Me a Coffee (minimal) */
     .tip-wrap { margin-top: 6px; }
     .tip-btn { display: inline-block; padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; background: #fff; text-decoration: none; color: #111; font-size: .95rem; }
     .tip-btn:hover { background: #f2f2f2; }
     .tip-note { color:#666; font-size:.9rem; margin-top:4px; }
 
-    /* ✅ Fix: Sort & Filters button width */
-    header h2,
-    header summary {
-      display: inline-block;
-      width: auto;
-      padding: 6px 12px;
-      background: #f8f8f8;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      font-weight: 600;
-      color: #0070f3;
-      font-size: 1rem;
-      margin: 0;
+    /* Sort & Filters submenu (compact, “normal” button) */
+    details.filters { width: fit-content; }
+    details.filters > summary {
+      list-style: none;
+      display: inline-flex; align-items:center; gap:8px;
+      padding: 8px 12px;
+      border: 1px solid #ddd; border-radius: 10px;
+      background: #fff; color:#111; font-weight:600; cursor:pointer;
+      user-select: none;
     }
+    details.filters > summary::-webkit-details-marker { display: none; }
+    details.filters > summary::after {
+      content: "▾"; font-size: 0.9rem; opacity: .7;
+    }
+    details.filters[open] > summary::after { transform: rotate(180deg); }
+    .filters-panel {
+      margin-top: 10px;
+      padding: 12px;
+      border: 1px solid #eee; border-radius: 12px; background: #fafafa;
+      display: grid; gap: 10px;
+    }
+    .filters-panel .row { align-items: center; }
   </style>
 </head>
 
@@ -100,6 +108,7 @@
       <span>Random Reader</span>
     </h1>
 
+    <!-- Buy Me a Coffee -->
     <div class="row">
       <div class="tip-wrap">
         <a class="tip-btn" href="https://www.buymeacoffee.com/randomaita" target="_blank" rel="noopener">
@@ -109,41 +118,42 @@
       </div>
     </div>
 
-    <h2>Sort & Filters</h2>
-    <div class="controls">
-      <div class="row">
-        <label>Sort</label>
-        <select id="sort">
-          <option value="all">All</option>
-          <option value="hot">Hot</option>
-          <option value="new">New</option>
-          <option value="top">Top</option>
-        </select>
-        <select id="topRange" style="display:none">
-          <option value="day">Day</option>
-          <option value="week" selected>Week</option>
-          <option value="month">Month</option>
-          <option value="year">Year</option>
-          <option value="all">All</option>
-        </select>
-      </div>
+    <!-- ✅ Sort & Filters submenu -->
+    <details class="filters" id="filters" aria-label="Sort and Filters">
+      <summary>Sort &amp; Filters</summary>
+      <div class="filters-panel">
+        <div class="row">
+          <label for="sort">Sort</label>
+          <select id="sort">
+            <option value="all">All</option>
+            <option value="hot">Hot</option>
+            <option value="new">New</option>
+            <option value="top">Top</option>
+          </select>
 
-      <div class="row">
-        <input id="searchBox" type="text" placeholder="keywords in title or text" />
-        <button id="searchBtn">Search</button>
-      </div>
+          <select id="topRange" style="display:none">
+            <option value="day">Day</option>
+            <option value="week" selected>Week</option>
+            <option value="month">Month</option>
+            <option value="year">Year</option>
+            <option value="all">All</option>
+          </select>
 
-      <div class="row toggle">
-        <input id="nsfw" type="checkbox" />
-        <label for="nsfw">Show NSFW</label>
-      </div>
-    </div>
+          <input id="searchBox" type="text" placeholder="keywords in title or text" />
+          <button id="searchBtn">Search</button>
+        </div>
 
-    <div class="controls2">
-      <div class="row">
-        <button id="speak">🔊 Read</button>
-        <button id="pause">⏸️ Pause</button>
+        <div class="row">
+          <input id="nsfw" type="checkbox" />
+          <label for="nsfw">Show NSFW</label>
+        </div>
       </div>
+    </details>
+
+    <!-- Keep Read/Pause outside the submenu -->
+    <div class="row" style="margin-top:6px;">
+      <button id="speak">🔊 Read</button>
+      <button id="pause">⏸️ Pause</button>
     </div>
   </header>
 
@@ -155,6 +165,7 @@
     <p id="text" class="body"></p>
     <div class="meta" id="meta"></div>
 
+    <!-- Voting block (JS hides it for specified subs) -->
     <div class="vote" id="voteBlock">
       <button id="voteYTA">They’re the Asshole (YTA)</button>
       <button id="voteNTA">Not the Asshole (NTA)</button>
@@ -162,6 +173,7 @@
       <span class="tally" id="tally"></span>
     </div>
 
+    <!-- Under-story action row -->
     <div class="under-actions">
       <button id="randomBtn" data-random="true">🎲 Random</button>
 
@@ -180,10 +192,11 @@
         </div>
       </div>
     </div>
+    <!-- End action row -->
   </article>
 </main>
 
-<!-- Your app logic -->
+<!-- App logic -->
 <script src="/static/app.js?v=14"></script>
 
 <!-- GA4 custom events -->
@@ -203,10 +216,14 @@
   }
 
   onReady(function () {
+    // Click tracking (Random / Share)
     document.addEventListener('click', function (e) {
       const t = e.target.closest('button, a');
       if (!t) return;
-      if (t.id === 'randomBtn' || t.dataset.random === 'true') gtagSafe('random_post_click');
+
+      if (t.id === 'randomBtn' || t.dataset.random === 'true') {
+        gtagSafe('random_post_click');
+      }
       if (t.id === 'shareToggle') {
         setTimeout(() => {
           const menu = document.getElementById('shareMenu');
@@ -214,9 +231,12 @@
           if (opened) gtagSafe('share_opened');
         }, 0);
       }
-      if (t.matches('[data-share]')) gtagSafe('share_clicked', { platform: t.dataset.share });
+      if (t.matches('[data-share]')) {
+        gtagSafe('share_clicked', { platform: t.dataset.share || 'share' });
+      }
     });
 
+    // Post loaded detection
     const titleEl = document.getElementById('title');
     const textEl  = document.getElementById('text');
     const linkEl  = document.getElementById('openLink');
@@ -243,6 +263,7 @@
     if (textEl) new MutationObserver(() => setTimeout(firePostLoadedIfChanged, 50)).observe(textEl, moOpts);
     window.addEventListener('load', () => setTimeout(firePostLoadedIfChanged, 250));
 
+    // Scroll depth @ 75% once per post
     window.addEventListener('scroll', () => {
       if (!currentSig || scrollSentFor === currentSig) return;
       const threshold = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) * 0.75;
