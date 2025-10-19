@@ -34,7 +34,7 @@
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 0; background: #fafafa; color: #111; }
     main { max-width: 900px; margin: 32px auto; padding: 0 16px; }
     header { display: grid; gap: var(--gap); margin-bottom: 16px; }
-    .controls2 { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
+    .controls, .controls2 { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
     .row { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
     .space { flex: 1; }
     .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 16px; padding: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.03); }
@@ -61,55 +61,27 @@
     }
     .share-menu button { display: block; width: 100%; text-align: left; margin: 2px 0; }
 
-    /* Under-story action bar */
     .under-actions { display: flex; align-items: center; gap: var(--gap); margin-top: 12px; }
     .right-actions { margin-left: auto; display: flex; gap: var(--gap); align-items: center; }
 
-    /* Buy Me a Coffee (minimal) */
     .tip-wrap { margin-top: 6px; }
     .tip-btn { display: inline-block; padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; background: #fff; text-decoration: none; color: #111; font-size: .95rem; }
     .tip-btn:hover { background: #f2f2f2; }
     .tip-note { color:#666; font-size:.9rem; margin-top:4px; }
 
-    /* === Collapsed Sort & Filters (added) === */
-    .filters { margin: 8px 0 4px; }
-    .filters-toggle {
-      width: 100%;
-      text-align: left;
+    /* ✅ Fix: Sort & Filters button width */
+    header h2,
+    header summary {
+      display: inline-block;
+      width: auto;
+      padding: 6px 12px;
+      background: #f8f8f8;
       border: 1px solid #ddd;
-      background: #fff;
-      border-radius: 12px;
-      padding: 12px;
-      font-weight: 700;
-      font-size: 16px;
-    }
-    .filters-panel {
-      display: none;
-      margin-top: 8px;
-      padding: 12px;
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      background: #fff;
-    }
-    .filters.open .filters-panel { display: block; }
-    .filters-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .input, .select {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid #ddd;
-      background: #fff;
-      font-size: 16px;
-    }
-    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-    @media (min-width: 900px){
-      /* On larger screens you can choose to keep filters always open; comment out if you want always-collapsed */
-      /* .filters-toggle { display:none; }
-      .filters-panel { display:block !important; } */
+      border-radius: 8px;
+      font-weight: 600;
+      color: #0070f3;
+      font-size: 1rem;
+      margin: 0;
     }
   </style>
 </head>
@@ -128,7 +100,6 @@
       <span>Random Reader</span>
     </h1>
 
-    <!-- Buy Me a Coffee -->
     <div class="row">
       <div class="tip-wrap">
         <a class="tip-btn" href="https://www.buymeacoffee.com/randomaita" target="_blank" rel="noopener">
@@ -138,46 +109,36 @@
       </div>
     </div>
 
-    <!-- Collapsed Sort & Filters (replaces old Controls) -->
-    <section class="filters" id="filters">
-      <button class="filters-toggle" type="button"
-              onclick="document.getElementById('filters').classList.toggle('open')">
-        Sort & Filters
-      </button>
-
-      <div class="filters-panel">
-        <div class="filters-grid">
-          <div class="row" style="gap:8px">
-            <label for="sort" style="min-width:max-content">Sort</label>
-            <select class="select" id="sort" aria-label="Sort">
-              <option value="all">All</option>
-              <option value="hot">Hot</option>
-              <option value="new">New</option>
-              <option value="top">Top</option>
-            </select>
-            <select id="topRange" style="display:none">
-              <option value="day">Day</option>
-              <option value="week" selected>Week</option>
-              <option value="month">Month</option>
-              <option value="year">Year</option>
-              <option value="all">All</option>
-            </select>
-          </div>
-
-          <div class="row" style="gap:8px">
-            <input class="input" id="searchBox" type="text" placeholder="keywords in title or text" />
-            <button id="searchBtn">Search</button>
-          </div>
-        </div>
-
-        <div class="checkbox-row" style="margin-top:10px">
-          <input id="nsfw" type="checkbox" />
-          <label for="nsfw">Show NSFW</label>
-        </div>
+    <h2>Sort & Filters</h2>
+    <div class="controls">
+      <div class="row">
+        <label>Sort</label>
+        <select id="sort">
+          <option value="all">All</option>
+          <option value="hot">Hot</option>
+          <option value="new">New</option>
+          <option value="top">Top</option>
+        </select>
+        <select id="topRange" style="display:none">
+          <option value="day">Day</option>
+          <option value="week" selected>Week</option>
+          <option value="month">Month</option>
+          <option value="year">Year</option>
+          <option value="all">All</option>
+        </select>
       </div>
-    </section>
 
-    <!-- Keep your TTS row exactly as before -->
+      <div class="row">
+        <input id="searchBox" type="text" placeholder="keywords in title or text" />
+        <button id="searchBtn">Search</button>
+      </div>
+
+      <div class="row toggle">
+        <input id="nsfw" type="checkbox" />
+        <label for="nsfw">Show NSFW</label>
+      </div>
+    </div>
+
     <div class="controls2">
       <div class="row">
         <button id="speak">🔊 Read</button>
@@ -194,7 +155,6 @@
     <p id="text" class="body"></p>
     <div class="meta" id="meta"></div>
 
-    <!-- Voting block (JS hides it for specified subs) -->
     <div class="vote" id="voteBlock">
       <button id="voteYTA">They’re the Asshole (YTA)</button>
       <button id="voteNTA">Not the Asshole (NTA)</button>
@@ -202,7 +162,6 @@
       <span class="tally" id="tally"></span>
     </div>
 
-    <!-- Under-story action row -->
     <div class="under-actions">
       <button id="randomBtn" data-random="true">🎲 Random</button>
 
@@ -227,7 +186,7 @@
 <!-- Your app logic -->
 <script src="/static/app.js?v=14"></script>
 
-<!-- GA4 custom events (random/share/post_loaded/scroll_depth) -->
+<!-- GA4 custom events -->
 <script>
 (function () {
   function onReady(fn){
@@ -244,67 +203,52 @@
   }
 
   onReady(function () {
-    // Click tracking (Random / Share)
     document.addEventListener('click', function (e) {
       const t = e.target.closest('button, a');
       if (!t) return;
-
-      if (t.id === 'randomBtn' || t.dataset.random === 'true') {
-        gtagSafe('random_post_click', { event_category: 'engagement' });
-      }
+      if (t.id === 'randomBtn' || t.dataset.random === 'true') gtagSafe('random_post_click');
       if (t.id === 'shareToggle') {
-        setTimeout(function () {
+        setTimeout(() => {
           const menu = document.getElementById('shareMenu');
           const opened = menu && getComputedStyle(menu).display !== 'none';
-          if (opened) gtagSafe('share_opened', { event_category: 'ui' });
+          if (opened) gtagSafe('share_opened');
         }, 0);
       }
-      if (t.matches('[data-share]')) {
-        const platform = t.getAttribute('data-share') || 'share';
-        gtagSafe('share_clicked', { event_category: 'social', event_label: platform });
-      }
-    }, true);
+      if (t.matches('[data-share]')) gtagSafe('share_clicked', { platform: t.dataset.share });
+    });
 
-    // Post loaded detection
     const titleEl = document.getElementById('title');
     const textEl  = document.getElementById('text');
     const linkEl  = document.getElementById('openLink');
+    let currentSig = '';
+    let scrollSentFor = '';
+
     function signature() {
       const title = (titleEl?.textContent || '').trim();
       const body  = (textEl?.textContent || '').trim().slice(0, 160);
       const href  = (linkEl?.getAttribute('href') || '').trim();
       return title + '|' + body + '|' + href;
     }
-    let currentSig = '';
-    let scrollSentFor = '';
-
     function firePostLoadedIfChanged() {
       const s = signature();
       if (s && s !== currentSig) {
         currentSig = s;
         scrollSentFor = '';
-        gtagSafe('post_loaded', { event_category: 'content' });
+        gtagSafe('post_loaded');
       }
     }
 
     const moOpts = { childList: true, subtree: true, characterData: true };
-    if (titleEl) new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(titleEl, moOpts);
-    if (textEl)  new MutationObserver(() => { clearTimeout(window.__pl); window.__pl = setTimeout(firePostLoadedIfChanged, 50); }).observe(textEl,  moOpts);
+    if (titleEl) new MutationObserver(() => setTimeout(firePostLoadedIfChanged, 50)).observe(titleEl, moOpts);
+    if (textEl) new MutationObserver(() => setTimeout(firePostLoadedIfChanged, 50)).observe(textEl, moOpts);
     window.addEventListener('load', () => setTimeout(firePostLoadedIfChanged, 250));
 
-    // Scroll depth @ 75% once per post
-    function pageHeight(){
-      return Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-    }
-    function viewportBottom(){
-      return (window.scrollY || window.pageYOffset || 0) + (window.innerHeight || 0);
-    }
-    window.addEventListener('scroll', function () {
+    window.addEventListener('scroll', () => {
       if (!currentSig || scrollSentFor === currentSig) return;
-      const threshold = pageHeight() * 0.75;
-      if (viewportBottom() >= threshold) {
+      const threshold = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) * 0.75;
+      if ((window.scrollY + window.innerHeight) >= threshold) {
         scrollSentFor = currentSig;
-        gtagSafe('scroll_depth', { event_category: 'engagement', value: 75 });
+        gtagSafe('scroll_depth', { value: 75 });
       }
     }, { passive: true });
   });
