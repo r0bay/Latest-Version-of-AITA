@@ -166,6 +166,11 @@ def resolve_sub(value):
 def index():
     return render_template("index.html")
 
+@app.route("/health")
+def health():
+    # Super fast ping for uptime monitors; doesn't touch Reddit or DB
+    return "ok", 200
+
 @app.route("/api/random")
 def api_random():
     sub_token = resolve_sub(request.args.get("sub"))
@@ -174,12 +179,10 @@ def api_random():
     include_nsfw = request.args.get("nsfw", "0") in ("1", "true", "True")
     search_q = request.args.get("q", "").strip()
 
-    # "all" sort option means: use 'hot' as the source then filter
     if sort == "all":
         sort = "hot"
 
     if sub_token == ALL_TOKEN:
-        # Combine posts from all allowed subs
         posts = []
         for s in ALLOWED_SUBS.values():
             posts.extend(fetch_posts(subreddit=s, sort=sort, t=t))
@@ -195,7 +198,6 @@ def api_random():
 
 @app.route("/api/post")
 def api_post_by_id():
-    """Fetch a single post by Reddit id (for sharing our own link ?id=POSTID)."""
     pid = request.args.get("id", "").strip()
     if not pid:
         return jsonify({"ok": False, "error": "missing_id"}), 400
@@ -241,7 +243,6 @@ def api_results():
 # ---------- Startup ----------
 def warm_start():
     try:
-        # Preload a bit for each allowed sub
         for sub in ALLOWED_SUBS.values():
             for sort, t in [("hot", None), ("new", None), ("top", "week")]:
                 fetch_posts(sub, sort, t)
