@@ -1,19 +1,6 @@
 <!doctype html>
 <html>
 <head>
-<!-- iOS home-screen icon(s) -->
-<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png?v=4">
-<link rel="apple-touch-icon" sizes="152x152" href="/static/icons/icon-152.png?v=4">
-<link rel="apple-touch-icon" sizes="167x167" href="/static/icons/icon-167.png?v=4">
-<link rel="apple-touch-icon" sizes="120x120" href="/static/icons/icon-120.png?v=4">
-<!-- Extra fallback some iOS versions still try to use -->
-<link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=4">
-
-<!-- Make it open full-screen and set the label under the icon -->
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Random AITA">
-
   <!-- GA4 -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-BDXP39TTQC"></script>
   <script>
@@ -26,25 +13,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Random AITA — Reader</title>
-
+ 
   <!-- PWA -->
   <link rel="manifest" href="/static/manifest.webmanifest">
   <meta name="theme-color" content="#ffffff">
-
-  <!-- iOS: Home-screen icons (multiple sizes) -->
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png?v=3">
-  <link rel="apple-touch-icon" sizes="167x167" href="/static/icons/icon-167.png?v=3">
-  <link rel="apple-touch-icon" sizes="152x152" href="/static/icons/icon-152.png?v=3">
-  <link rel="apple-touch-icon" sizes="120x120" href="/static/icons/icon-120.png?v=3">
-
-  <!-- (Optional fallback; can keep if you like) -->
-  <link rel="apple-touch-icon" href="/static/icons/icon-192.png?v=3">
-
-  <!-- iOS: open as a standalone, full-screen app -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-
-  <!-- Service Worker registration -->
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
@@ -140,7 +113,6 @@
   <button id="fabRandomBtn" class="fab-random" aria-label="Random">🎲</button>
 </main>
 
-<script src="/static/app.js?v=25"></script>
+<script src="/static/app.js?v=24"></script>
 </body>
 </html>
-
