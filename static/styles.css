@@ -170,12 +170,16 @@ h2 { font-size: 1.25rem; margin-top: 0; }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Floating dice */
+/* ---------------- Floating dice (final) ----------------
+   Pinned to the safe bottom-right corner on all devices. */
 .fab-random {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 9999;
+  position: fixed !important;
+  right: max(16px, env(safe-area-inset-right)) !important;
+  bottom: calc(max(16px, env(safe-area-inset-bottom))) !important;
+  bottom: calc(max(16px, constant(safe-area-inset-bottom))) !important; /* iOS fallback */
+  z-index: 2147483647 !important;
+
+  /* visual styles (kept from your original) */
   display: none;
   align-items: center;
   justify-content: center;
@@ -188,12 +192,28 @@ h2 { font-size: 1.25rem; margin-top: 0; }
   cursor: pointer;
 }
 
+/* Show the floating dice on mobile; hide inline desktop button there */
 @media (max-width: 768px) {
-  .fab-random { display: inline-flex; bottom: 88px; right: 16px; }
+  .fab-random { display: inline-flex; }
   .desktop-random { display: none; }
 }
 
+/* Keep dice visible on larger screens too (if you want it there) */
 @media (min-width: 769px) {
   .fab-random { display: inline-flex !important; }
 }
+
+/* Optionally hide the legacy share dropdown UI completely */
+#shareMenu,
+[data-share-menu],
+.share-menu,
+.shareDropdown,
+.share-menu-panel {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* General safety */
+body, html { overflow-x: hidden; }
 

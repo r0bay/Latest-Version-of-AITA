@@ -23,12 +23,12 @@ const voteNTA = document.getElementById("voteNTA");
 const voteESH = document.getElementById("voteESH");
 const tallyEl = document.getElementById("tally");
 
-// Share + Filters + FAB
-const shareToggle = document.getElementById("shareToggle");
-const shareMenu   = document.getElementById("shareMenu");
+// Share + Filters + FAB (keep refs; we’ll re-wire behavior)
+const shareToggle  = document.getElementById("shareToggle");
+const shareMenu    = document.getElementById("shareMenu");
 const filterToggle = document.getElementById("filterToggle");
 const filtersPanel = document.getElementById("filters");
-const fabBtn = document.getElementById("fabRandomBtn");
+const fabBtn       = document.getElementById("fabRandomBtn");
 
 const synth = window.speechSynthesis;
 let currentPost = null;
@@ -229,11 +229,11 @@ function pauseOrResume() {
   }
 }
 
-// --------- Share ----------
+// --------- Share (final, minimal, safe) ----------
 function yourPostUrl() {
   const url = new URL(window.location.origin);
   if (currentPost?.id) url.searchParams.set("id", currentPost.id);
-  if (subSel?.value) url.searchParams.set("sub", subSel.value);
+  if (subSel?.value)   url.searchParams.set("sub", subSel.value);
   return url.toString();
 }
 function shareTextAndUrl() {
@@ -241,42 +241,50 @@ function shareTextAndUrl() {
   const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this story`;
   return { text, url };
 }
-function openShare(url) { window.open(url, "_blank", "noopener,noreferrer"); }
-function handleShare(action) {
-  const { text, url } = shareTextAndUrl();
-  if (!action) return;
-  switch (action) {
-    case "whatsapp": openShare(`https://wa.me/?text=${encodeURIComponent(text + " " + url)}`); break;
-    case "facebook": openShare(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`); break;
-    case "twitter":  openShare(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`); break;
-    case "reddit":   openShare(`https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`); break;
-    case "sms":      window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`; break;
+async function copyToClipboardFallback(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('Link copied to clipboard 👍');
+  } catch {
+    window.prompt('Copy this link:', text);
   }
 }
+async function openNativeShare() {
+  const tEl   = document.getElementById('title');
+  const title = (tEl && tEl.textContent.trim()) || document.title || 'Random AITA';
+  const url   = yourPostUrl();
+  const text  = title;
 
-// Share dropdown wiring (guarded; no redeclarations)
-if (shareToggle && shareMenu) {
-  shareToggle.addEventListener("click", e => {
-    e.stopPropagation();
-    shareMenu.style.display = shareMenu.style.display === "block" ? "none" : "block";
-  });
-  shareMenu.addEventListener("click", e => {
-    const btn = e.target.closest("button");
-    if (!btn) return;
-    handleShare(btn.dataset.share);
-    shareMenu.style.display = "none";
-  });
-  document.addEventListener("click", () => (shareMenu.style.display = "none"));
+  try { if (typeof gtag === 'function') gtag('event', 'share_opened'); } catch {}
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url });
+      try { if (typeof gtag === 'function') gtag('event', 'share_clicked', { platform: 'native' }); } catch {}
+      return; // success, done
+    } catch (err) {
+      const msg = (err && (err.name || err.message || '')).toString().toLowerCase();
+      // user cancelled -> do nothing
+      if (msg.includes('abort') || msg.includes('cancell') || msg.includes('cancelled') || msg.includes('canceled') || msg.includes('not allowed')) {
+        return;
+      }
+      // real failure -> copy fallback
+      return copyToClipboardFallback(url);
+    }
+  }
+  // no Web Share -> copy fallback
+  return copyToClipboardFallback(url);
 }
 
-// Filters panel toggle (restores your dropdown)
+// NOTE: We intentionally DO NOT wire the old dropdown at all.
+// We hide it and wire Share button to native share only.
+
+// --------- Filters / FAB wiring ----------
 if (filterToggle && filtersPanel) {
   filterToggle.addEventListener("click", () => {
     filtersPanel.classList.toggle("open");
   });
 }
-
-// FAB dice triggers same as Random button
 if (fabBtn && randomBtn) {
   fabBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
 }
@@ -307,6 +315,25 @@ if (voteESH) voteESH.addEventListener("click", () => vote("ESH"));
 
 // --------- Initial load ----------
 window.addEventListener("DOMContentLoaded", () => {
+  // Hide any legacy dropdown menu if it exists
+  if (shareMenu) {
+    shareMenu.style.display = "none";
+  }
+
+  // Wire Share button safely (no capture phase, no stopImmediatePropagation)
+  if (shareToggle) {
+    // strip any legacy dropdown attributes that could re-open it
+    ["data-toggle","data-bs-toggle","data-target","data-bs-target","aria-expanded","href"].forEach(a => {
+      if (shareToggle.hasAttribute(a)) shareToggle.removeAttribute(a);
+    });
+    shareToggle.addEventListener("click", (e) => {
+      // if it's an anchor, prevent navigation
+      if (e.currentTarget.tagName === 'A') e.preventDefault();
+      openNativeShare();
+    });
+  }
+
+  // handle sub/id from URL and load first story
   const urlParams = new URLSearchParams(window.location.search);
   const sub = urlParams.get("sub");
   if (sub && subSel && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
