@@ -1,3 +1,4 @@
+// ----- element refs -----
 const titleEl = document.getElementById("title");
 const textEl  = document.getElementById("text");
 const metaEl  = document.getElementById("meta");
@@ -22,8 +23,12 @@ const voteNTA = document.getElementById("voteNTA");
 const voteESH = document.getElementById("voteESH");
 const tallyEl = document.getElementById("tally");
 
+// Share + Filters + FAB
 const shareToggle = document.getElementById("shareToggle");
 const shareMenu   = document.getElementById("shareMenu");
+const filterToggle = document.getElementById("filterToggle");
+const filtersPanel = document.getElementById("filters");
+const fabBtn = document.getElementById("fabRandomBtn");
 
 const synth = window.speechSynthesis;
 let currentPost = null;
@@ -31,31 +36,33 @@ let currentPost = null;
 // subs where we disable votes and suppress flair display
 const NO_VOTE_NO_FLAIR_SUBS = new Set(["twohottakes", "AmIOverreacting"]);
 
+// --------- helpers ----------
 function setLoading(isLoading) {
-  spinner.style.display = isLoading ? "inline-block" : "none";
+  if (spinner) spinner.style.display = isLoading ? "inline-block" : "none";
   if (randomBtn) randomBtn.disabled = isLoading;
-  errorEl.textContent = "";
+  if (errorEl) errorEl.textContent = "";
 }
-function setError(msg) { errorEl.textContent = msg || ""; }
+function setError(msg) { if (errorEl) errorEl.textContent = msg || ""; }
 
 function qs() {
   const p = new URLSearchParams();
-  if (subSel.value) p.set("sub", subSel.value);
-  if (sortSel.value && sortSel.value !== "all") p.set("sort", sortSel.value);
-  if (sortSel.value === "top" && rangeSel.value) p.set("t", rangeSel.value);
-  if (nsfwChk.checked) p.set("nsfw", "1");
-  if (searchBox.value.trim()) p.set("q", searchBox.value.trim());
+  if (subSel?.value) p.set("sub", subSel.value);
+  if (sortSel?.value && sortSel.value !== "all") p.set("sort", sortSel.value);
+  if (sortSel?.value === "top" && rangeSel?.value) p.set("t", rangeSel.value);
+  if (nsfwChk?.checked) p.set("nsfw", "1");
+  if (searchBox?.value?.trim()) p.set("q", searchBox.value.trim());
   return p.toString();
 }
 
 function shouldHideVotesAndFlair(post) {
   if (!post?.subreddit) return false;
-  // compare case-insensitively
-  return Array.from(NO_VOTE_NO_FLAIR_SUBS).some(s => s.toLowerCase() === post.subreddit.toLowerCase());
+  return Array.from(NO_VOTE_NO_FLAIR_SUBS).some(
+    s => s.toLowerCase() === post.subreddit.toLowerCase()
+  );
 }
 
 function setMetaPreVote(post) {
-  // if in the no-flair list → never show flair, only NSFW badge if applicable
+  if (!metaEl) return;
   if (shouldHideVotesAndFlair(post)) {
     metaEl.textContent = post.over_18 ? "NSFW" : "";
     return;
@@ -64,7 +71,7 @@ function setMetaPreVote(post) {
 }
 
 function setMetaPostVote(post) {
-  // if in the no-flair list → never show flair (still show NSFW tag)
+  if (!metaEl) return;
   if (shouldHideVotesAndFlair(post)) {
     metaEl.textContent = post.over_18 ? "NSFW" : "";
     return;
@@ -78,8 +85,7 @@ function toggleVotesVisibility(post) {
   if (!voteBlock) return;
   const hide = shouldHideVotesAndFlair(post);
   voteBlock.style.display = hide ? "none" : "flex";
-  // also clear tally if hiding votes
-  if (hide) tallyEl.textContent = "";
+  if (hide && tallyEl) tallyEl.textContent = "";
 }
 
 function scrollToTop() {
@@ -89,25 +95,20 @@ function scrollToTop() {
 
 function updateView(post, yourVote=null) {
   currentPost = post;
-  titleEl.textContent = post.title || "(no title)";
-  textEl.textContent  = post.text || "";
-  openEl.href = post.permalink || "#";
+  if (titleEl) titleEl.textContent = post.title || "(no title)";
+  if (textEl)  textEl.textContent  = post.text || "";
+  if (openEl)  openEl.href = post.permalink || "#";
 
-  // show/hide the voting area based on subreddit
   toggleVotesVisibility(post);
-
-  // Clear tally until we know there are votes (and only if votes are shown)
-  tallyEl.textContent = "";
+  if (tallyEl) tallyEl.textContent = "";
 
   if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
-  // Only fetch results if votes are enabled (no need otherwise)
   if (!shouldHideVotesAndFlair(post)) fetchResults();
 
-  // Update URL to a shareable link (?id=POSTID&sub=SUB)
   if (post?.id) {
     const url = new URL(window.location.href);
     url.searchParams.set("id", post.id);
-    if (subSel.value) url.searchParams.set("sub", subSel.value);
+    if (subSel?.value) url.searchParams.set("sub", subSel.value);
     history.replaceState({}, "", url.toString());
   }
 
@@ -157,7 +158,6 @@ async function fetchById(pid) {
 // --------- Voting ----------
 async function vote(which) {
   if (!currentPost?.id) return;
-  // If votes are hidden for this sub, ignore clicks (shouldn't show, but safety)
   if (shouldHideVotesAndFlair(currentPost)) return;
 
   try {
@@ -173,7 +173,7 @@ async function vote(which) {
       const n = data.counts?.NTA || 0;
       const e = data.counts?.ESH || 0;
       const total = y + n + e;
-      tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
+      if (tallyEl) tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
       setMetaPostVote(currentPost);
       setError("You can only vote once for this story.");
       setTimeout(() => setError(""), 2000);
@@ -189,7 +189,7 @@ async function vote(which) {
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
     const total = y + n + e;
-    tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
+    if (tallyEl) tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
     setMetaPostVote(currentPost);
   } catch (err) {
     setError(String(err));
@@ -207,25 +207,25 @@ async function fetchResults() {
     const n = data.counts?.NTA || 0;
     const e = data.counts?.ESH || 0;
     const total = y + n + e;
-    tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
+    if (tallyEl) tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
     if (data.your_vote) setMetaPostVote(currentPost);
   } catch {}
 }
 
 // --------- Speech ----------
-function stopSpeech() { synth.cancel(); pauseBtn.textContent = "⏸️ Pause"; }
+function stopSpeech() { synth.cancel(); if (pauseBtn) pauseBtn.textContent = "⏸️ Pause"; }
 function readAloud() {
   if (!currentPost) return;
   stopSpeech();
   const u = new SpeechSynthesisUtterance(`${currentPost.title}. ${currentPost.text}`);
   synth.speak(u);
-  pauseBtn.textContent = "⏸️ Pause";
+  if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
 }
 function pauseOrResume() {
   if (synth.speaking && !synth.paused) {
-    synth.pause(); pauseBtn.textContent = "▶️ Resume";
+    synth.pause(); if (pauseBtn) pauseBtn.textContent = "▶️ Resume";
   } else if (synth.paused) {
-    synth.resume(); pauseBtn.textContent = "⏸️ Pause";
+    synth.resume(); if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
   }
 }
 
@@ -233,7 +233,7 @@ function pauseOrResume() {
 function yourPostUrl() {
   const url = new URL(window.location.origin);
   if (currentPost?.id) url.searchParams.set("id", currentPost.id);
-  if (subSel.value) url.searchParams.set("sub", subSel.value);
+  if (subSel?.value) url.searchParams.set("sub", subSel.value);
   return url.toString();
 }
 function shareTextAndUrl() {
@@ -253,22 +253,47 @@ function handleShare(action) {
     case "sms":      window.location.href = `sms:?&body=${encodeURIComponent(text + " " + url)}`; break;
   }
 }
-shareToggle.addEventListener("click", e => { e.stopPropagation(); shareMenu.style.display = shareMenu.style.display === "block" ? "none" : "block"; });
-shareMenu.addEventListener("click", e => { const btn = e.target.closest("button"); if (!btn) return; handleShare(btn.dataset.share); shareMenu.style.display = "none"; });
-document.addEventListener("click", () => shareMenu.style.display = "none");
+
+// Share dropdown wiring (guarded; no redeclarations)
+if (shareToggle && shareMenu) {
+  shareToggle.addEventListener("click", e => {
+    e.stopPropagation();
+    shareMenu.style.display = shareMenu.style.display === "block" ? "none" : "block";
+  });
+  shareMenu.addEventListener("click", e => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    handleShare(btn.dataset.share);
+    shareMenu.style.display = "none";
+  });
+  document.addEventListener("click", () => (shareMenu.style.display = "none"));
+}
+
+// Filters panel toggle (restores your dropdown)
+if (filterToggle && filtersPanel) {
+  filterToggle.addEventListener("click", () => {
+    filtersPanel.classList.toggle("open");
+  });
+}
+
+// FAB dice triggers same as Random button
+if (fabBtn && randomBtn) {
+  fabBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
+}
 
 // --------- Events ----------
-randomBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
-searchBtn.addEventListener("click", fetchRandom);
-searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
+if (randomBtn) randomBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
+if (searchBtn) searchBtn.addEventListener("click", fetchRandom);
+if (searchBox) searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
 
-speakBtn.addEventListener("click", readAloud);
-pauseBtn.addEventListener("click", pauseOrResume);
+if (speakBtn) speakBtn.addEventListener("click", readAloud);
+if (pauseBtn) pauseBtn.addEventListener("click", pauseOrResume);
 
-sortSel.addEventListener("change", () => {
-  rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
+if (sortSel) sortSel.addEventListener("change", () => {
+  if (rangeSel) rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
 });
-subSel.addEventListener("change", () => {
+
+if (subSel) subSel.addEventListener("change", () => {
   const url = new URL(window.location.href);
   url.searchParams.set("sub", subSel.value);
   url.searchParams.delete("id");
@@ -276,70 +301,31 @@ subSel.addEventListener("change", () => {
   fetchRandom();
 });
 
-voteYTA.addEventListener("click", () => vote("YTA"));
-voteNTA.addEventListener("click", () => vote("NTA"));
-voteESH.addEventListener("click", () => vote("ESH"));
+if (voteYTA) voteYTA.addEventListener("click", () => vote("YTA"));
+if (voteNTA) voteNTA.addEventListener("click", () => vote("NTA"));
+if (voteESH) voteESH.addEventListener("click", () => vote("ESH"));
 
 // --------- Initial load ----------
 window.addEventListener("DOMContentLoaded", () => {
   const urlParams = new URLSearchParams(window.location.search);
   const sub = urlParams.get("sub");
-  if (sub && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
+  if (sub && subSel && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
     subSel.value = Array.from(subSel.options).find(o => o.value.toLowerCase() === sub.toLowerCase()).value;
   }
 
   const pid = urlParams.get("id");
 
-  // Wait briefly to ensure everything is ready, then load the first story
   setTimeout(() => {
     if (pid) {
       fetchById(pid);
     } else {
       fetchRandom().catch(() => {
-        // Retry once after 1.5s if backend was cold-starting
         setTimeout(fetchRandom, 1500);
       });
     }
   }, 400);
 });
 
-rangeSel.style.display = "none";
+// Keep topRange hidden initially
+if (rangeSel) rangeSel.style.display = "none";
 setError("");
-
-// === Hard-enforce "Sort & Filters" button shrink-to-text (no side effects) ===
-(function enforceSortFiltersButtonSize() {
-  function apply(btn) {
-    if (!btn) return;
-    // Use inline styles with !important so nothing else can override this
-    const s = btn.style;
-    s.setProperty('display', 'inline-flex', 'important');     // shrink-to-fit + center
-    s.setProperty('align-items', 'center', 'important');
-    s.setProperty('gap', '6px', 'important');
-    s.setProperty('white-space', 'nowrap', 'important');
-    s.setProperty('width', 'auto', 'important');
-    s.setProperty('max-width', 'max-content', 'important');
-    s.setProperty('flex', '0 0 auto', 'important');           // stop flex-grow
-    s.setProperty('padding', '8px 14px', 'important');        // keep your spacing
-  }
-
-  function init() {
-    const btn = document.getElementById('sortFiltersBtn') || document.querySelector('.sort-filters');
-    if (!btn) return;
-
-    apply(btn);
-
-    // If anything later tries to change it (class/style), re-apply immediately
-    const mo = new MutationObserver(() => apply(btn));
-    mo.observe(btn, { attributes: true, attributeFilter: ['style', 'class'] });
-
-    // Re-apply on resize just in case layout scripts run then
-    window.addEventListener('resize', () => apply(btn), { passive: true });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
-
