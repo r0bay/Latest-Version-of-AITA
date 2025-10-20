@@ -30,12 +30,28 @@ header {
   margin-bottom: 10px;
 }
 
+/* --- Header controls: balanced dropdown + button --- */
 .header-left select,
 .header-left button {
   font-size: 1rem;
-  width: 220px;
-  max-width: 100%;
-  margin-left: 0;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  height: 42px;          /* consistent height (desktop) */
+  width: 200px;          /* consistent width (desktop) */
+  line-height: 1;
+  text-align: center;
+}
+
+/* Mobile sizes so they don’t look oversized */
+@media (max-width: 768px) {
+  .header-left select,
+  .header-left button {
+    height: 40px;
+    width: 160px;
+  }
 }
 
 /* --- Unified Button Design --- */
@@ -216,4 +232,3 @@ h2 { font-size: 1.25rem; margin-top: 0; }
 
 /* General safety */
 body, html { overflow-x: hidden; }
-
