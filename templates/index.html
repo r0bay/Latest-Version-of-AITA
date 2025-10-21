@@ -13,7 +13,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Random AITA — Reader</title>
- 
+
   <!-- PWA -->
   <link rel="manifest" href="/static/manifest.webmanifest">
   <meta name="theme-color" content="#ffffff">
@@ -85,6 +85,7 @@
     </div>
   </article>
 
+  <!-- Footer Row -->
   <div class="below-row">
     <div class="below-left">
       <div class="share-wrap">
@@ -99,20 +100,21 @@
       </div>
     </div>
 
-    <div class="below-center">
-      <a class="tip-btn" href="https://www.buymeacoffee.com/randomaita" target="_blank" rel="noopener">☕ Buy me a coffee</a>
-      <div class="tip-note">Donations help keep the site running ad-free. Thank you! ❤️</div>
+    <!-- Centered “Open on Reddit” (replaces coffee button) -->
+    <div class="below-center" style="text-align:center;">
+      <a id="openLink" target="_blank" rel="noopener">
+        <button>Open on Reddit</button>
+      </a>
     </div>
 
-    <div class="below-right">
-      <a id="openLink" target="_blank" rel="noopener"><button>Open on Reddit</button></a>
-    </div>
+    <!-- Empty right side (keeps layout balanced) -->
+    <div class="below-right"></div>
   </div>
 
   <!-- Floating Random dice -->
   <button id="fabRandomBtn" class="fab-random" aria-label="Random">🎲</button>
 </main>
 
-<script src="/static/app.js?v=24"></script>
+<script src="/static/app.js?v=27"></script>
 </body>
 </html>
