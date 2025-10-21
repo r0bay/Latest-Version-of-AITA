@@ -1,6 +1,6 @@
 import os, time, random, threading, sqlite3, tempfile
 from dotenv import load_dotenv
-from flask import Flask, render_template, jsonify, request, session
+from flask import Flask, render_template, jsonify, request, session, send_from_directory
 import requests
 from contextlib import contextmanager
 from threading import Lock
@@ -21,15 +21,15 @@ API_BASE  = "https://oauth.reddit.com"
 
 # Allowed subreddits (add more safely here)
 ALLOWED_SUBS = {
-    "AmItheAsshole": "AmItheAsshole",      # r/AmItheAsshole
-    "twohottakes": "twohottakes",          # r/twohottakes
-    "AmIOverreacting": "AmIOverreacting",  # r/AmIOverreacting
+    "AmItheAsshole": "AmItheAsshole",
+    "twohottakes": "twohottakes",
+    "AmIOverreacting": "AmIOverreacting",
 }
 DEFAULT_SUB = "AmItheAsshole"
-ALL_TOKEN   = "ALL"  # special value for "All subreddits"
+ALL_TOKEN   = "ALL"
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
-app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(24))  # per-session vote lock
+app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(24))
 
 # ---------- SQLite (votes) ----------
 DB_PATH  = os.environ.get("VOTES_DB_PATH", os.path.join(tempfile.gettempdir(), "votes.db"))
@@ -150,7 +150,6 @@ def apply_filters(posts, include_nsfw=False, search_q=None):
     return results
 
 def resolve_sub(value):
-    """Return a subreddit string, or ALL_TOKEN for 'all', or default sub."""
     if not value:
         return DEFAULT_SUB
     v = value.strip()
@@ -168,8 +167,12 @@ def index():
 
 @app.route("/health")
 def health():
-    # Super fast ping for uptime monitors; doesn't touch Reddit or DB
     return "ok", 200
+
+@app.route("/privacy")
+@app.route("/privacy/")
+def privacy():
+    return render_template("privacy.html")
 
 @app.route("/api/random")
 def api_random():
