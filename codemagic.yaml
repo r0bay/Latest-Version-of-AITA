@@ -16,10 +16,15 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios/App
-          pod install
+          pod install --repo-update
+          ls -la Pods/Target\ Support\ Files/Pods-App/ || echo "Pods directory check"
           cd ../..
       - name: Set up code signing settings on Xcode project
         script: |
+          # Set automatic code signing
+          xcode-project use-profiles \
+            --team-id $APP_STORE_CONNECT_API_KEY_ISSUER_ID \
+            --bundle-id $BUNDLE_ID || \
           xcode-project use-profiles
       - name: List schemes to verify
         script: |
