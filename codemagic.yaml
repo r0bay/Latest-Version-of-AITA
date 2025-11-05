@@ -70,33 +70,16 @@ workflows:
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           echo "Archive will be created at: $ARCHIVE_PATH"
           
-          # If workspace doesn't have the scheme, try to build using project but with workspace context
-          if echo "$WORKSPACE_SCHEMES" | grep -q "App"; then
-            echo "Building archive with workspace (scheme found)..."
-            xcodebuild archive \
-              -workspace App.xcworkspace \
-              -scheme App \
-              -archivePath "$ARCHIVE_PATH" \
-              -allowProvisioningUpdates \
-              -destination "generic/platform=iOS"
-          elif echo "$PROJECT_SCHEMES" | grep -q "App"; then
-            echo "Scheme found in project, building archive with project file..."
-            xcodebuild archive \
-              -project App.xcodeproj \
-              -scheme App \
-              -archivePath "$ARCHIVE_PATH" \
-              -allowProvisioningUpdates \
-              -destination "generic/platform=iOS"
-          else
-            echo "ERROR: Scheme 'App' not found in workspace or project!"
-            echo "Trying to build archive anyway..."
-            xcodebuild archive \
-              -workspace App.xcworkspace \
-              -scheme App \
-              -archivePath "$ARCHIVE_PATH" \
-              -allowProvisioningUpdates \
-              -destination "generic/platform=iOS"
-          fi
+          # ALWAYS use workspace (required for CocoaPods)
+          # Even if scheme detection doesn't show it in workspace, the scheme file exists
+          # and xcodebuild should be able to use it
+          echo "Building archive with workspace (required for CocoaPods)..."
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -destination "generic/platform=iOS"
           
           # Check exit status
           BUILD_EXIT_CODE=$?
@@ -114,6 +97,7 @@ workflows:
           else
             echo "WARNING: Archive not found at expected path, searching..."
             find . -name "*.xcarchive" -type d
+            exit 1
           fi
           cd ../..
       - name: Export IPA
