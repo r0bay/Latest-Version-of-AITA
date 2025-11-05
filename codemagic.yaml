@@ -6,7 +6,7 @@ workflows:
     environment:
       vars:
         APP_ID: com.randomaita.app
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: com.randomaita.app
     scripts:
@@ -24,7 +24,7 @@ workflows:
       - name: Build ipa for distribution
         script: |
           xcodebuild build archive \
-            -workspace "$XCODE_WORKSPACE" \
+            -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -archivePath "$CM_BUILD_DIR/build.xcarchive" \
             -allowProvisioningUpdates
