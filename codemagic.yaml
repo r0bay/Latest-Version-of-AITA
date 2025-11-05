@@ -81,10 +81,25 @@ workflows:
       - name: Set up code signing settings on Xcode project
         script: |
           cd ios/App
+          echo "Setting up code signing with Team ID: $TEAM_ID"
+          echo "Bundle ID: $BUNDLE_ID"
+          
+          # Use xcode-project to set up code signing
           xcode-project use-profiles \
             --team-id $TEAM_ID \
             --bundle-id $BUNDLE_ID \
-            --workspace App.xcworkspace
+            --workspace App.xcworkspace || \
+          (
+            echo "Workspace code signing setup failed, trying project..."
+            xcode-project use-profiles \
+              --team-id $TEAM_ID \
+              --bundle-id $BUNDLE_ID \
+              --project App.xcodeproj
+          )
+          
+          # Verify code signing was set up
+          echo "Verifying code signing setup..."
+          xcodebuild -project App.xcodeproj -showBuildSettings -target App | grep -E "CODE_SIGN|DEVELOPMENT_TEAM" | head -10
           cd ../..
       - name: Verify workspace and scheme
         script: |
@@ -118,42 +133,26 @@ workflows:
             fi
           fi
           
+          # Verify code signing is set up
+          echo "Checking code signing configuration..."
+          xcodebuild -project App.xcodeproj -showBuildSettings -target App | grep -E "DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY" | head -5
+          
           # List schemes
           echo "Listing schemes in project..."
           xcodebuild -project App.xcodeproj -list
           
-          # Try building with workspace by specifying scheme file directly
-          # The workspace needs the scheme, but we can try to work around it
-          echo "Attempting to build with workspace and explicit scheme..."
-          
-          # Check if we can use the workspace with the scheme
-          SCHEME_FILE="App.xcodeproj/xcshareddata/xcschemes/App.xcscheme"
-          if [ -f "$SCHEME_FILE" ]; then
-            echo "Scheme file exists, trying workspace build..."
-            # Use workspace but xcodebuild should find the scheme from the project
-            xcodebuild archive \
-              -workspace App.xcworkspace \
-              -scheme App \
-              -archivePath "$ARCHIVE_PATH" \
-              -allowProvisioningUpdates \
-              -destination "generic/platform=iOS" \
-              -configuration Release 2>&1 | head -100 || \
-            (
-              echo "Workspace build failed, trying project build with explicit Pods path..."
-              # Fallback: build from project but set xcconfig path explicitly
-              export XCODE_XCCONFIG_FILE="$(pwd)/Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"
-              xcodebuild archive \
-                -project App.xcodeproj \
-                -scheme App \
-                -archivePath "$ARCHIVE_PATH" \
-                -allowProvisioningUpdates \
-                -destination "generic/platform=iOS" \
-                -configuration Release
-            )
-          else
-            echo "ERROR: Scheme file not found!"
-            exit 1
-          fi
+          # Build with workspace (scheme is now recognized!)
+          echo "Building archive with workspace..."
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            CODE_SIGN_STYLE="Automatic"
           
           # Check exit status
           BUILD_EXIT_CODE=$?
