@@ -24,18 +24,17 @@ workflows:
           ls -la Pods/Target\ Support\ Files/Pods-App/ || echo "Warning: Pods directory not found"
           ls -la App.xcworkspace || echo "Warning: Workspace not found"
           cd ../..
-      - name: Create shared scheme (required for workspace builds)
+      - name: Verify scheme exists
         script: |
           cd ios/App
-          # Create scheme directory if it doesn't exist
-          mkdir -p App.xcodeproj/xcshareddata/xcschemes
-          # Force create the scheme file (overwrite if exists)
-          echo "Creating shared scheme: App.xcscheme"
-          printf '<?xml version="1.0" encoding="UTF-8"?>\n<Scheme\n   LastUpgradeVersion = "1500"\n   version = "1.7">\n   <BuildAction>\n      <BuildActionEntries>\n         <BuildActionEntry\n            buildForTesting = "YES"\n            buildForRunning = "YES"\n            buildForProfiling = "YES"\n            buildForArchiving = "YES"\n            buildForAnalyzing = "YES">\n            <BuildableReference\n               BuildableIdentifier = "primary"\n               BlueprintIdentifier = "504EC3031FED79650016851F"\n               BuildableName = "App.app"\n               BlueprintName = "App"\n               ReferencedContainer = "container:App.xcodeproj">\n            </BuildableReference>\n         </BuildActionEntry>\n      </BuildActionEntries>\n   </BuildAction>\n   <TestAction>\n      <Testables>\n      </Testables>\n   </TestAction>\n   <LaunchAction\n      buildConfiguration = "Debug"\n      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"\n      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"\n      launchStyle = "0">\n      <BuildableProductRunnable\n         runnableDebuggingMode = "0">\n         <BuildableReference\n            BuildableIdentifier = "primary"\n            BlueprintIdentifier = "504EC3031FED79650016851F"\n            BuildableName = "App.app"\n            BlueprintName = "App"\n            ReferencedContainer = "container:App.xcodeproj">\n         </BuildableReference>\n      </BuildableProductRunnable>\n   </LaunchAction>\n   <ArchiveAction\n      buildConfiguration = "Release"\n      revealArchiveInOrganizer = "YES">\n   </ArchiveAction>\n</Scheme>\n' > App.xcodeproj/xcshareddata/xcschemes/App.xcscheme
-          ls -la App.xcodeproj/xcshareddata/xcschemes/
-          # Re-run pod install to ensure workspace recognizes the scheme
-          echo "Re-running pod install to refresh workspace..."
-          pod install
+          echo "Checking if scheme file exists..."
+          if [ -f "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme" ]; then
+            echo "✓ Scheme file found"
+            ls -la App.xcodeproj/xcshareddata/xcschemes/
+          else
+            echo "✗ Scheme file not found - this should be committed to the repository"
+            exit 1
+          fi
           cd ../..
       - name: Set up code signing settings on Xcode project
         script: |
