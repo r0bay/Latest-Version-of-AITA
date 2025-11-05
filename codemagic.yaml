@@ -12,174 +12,51 @@ workflows:
         XCODE_SCHEME: "App"
         BUNDLE_ID: com.randomaita.app
         TEAM_ID: US86BZ3GH5
+    triggering:
+      branch:
+        - main
     scripts:
       - name: Install Node.js dependencies
         script: |
           npm install
       - name: Install CocoaPods dependencies
         script: |
-          # Ensure we're in project root for path resolution
-          echo "Current directory: $(pwd)"
-          echo "Verifying node_modules installation..."
-          
-          # Verify Capacitor is installed
-          if [ ! -d "node_modules/@capacitor/ios" ]; then
-            echo "Capacitor iOS not found - running npm install..."
-            npm install
-          fi
-          
-          # Verify the exact path the Podfile expects
-          PODS_HELPER_PATH="../../../../node_modules/@capacitor/ios/scripts/pods_helpers.rb"
-          if [ -f "$PODS_HELPER_PATH" ]; then
-            echo "✓ Pods helper found at relative path from ios/App"
-          else
-            echo "✗ Pods helper NOT found at expected relative path"
-            echo "Checking from project root..."
-            if [ -f "node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
-              echo "✓ Pods helper exists at project root"
-              echo "The Podfile path might be wrong for this directory structure"
-            fi
-          fi
-          
-          # Run pod install from ios/App directory (where Podfile is)
           cd ios/App
-          echo "Running pod install from: $(pwd)"
           pod install --repo-update
-          
           echo "Verifying CocoaPods installation..."
-          ls -la Pods/Target\ Support\ Files/Pods-App/ || echo "Warning: Pods directory not found"
-          ls -la App.xcworkspace || echo "Warning: Workspace not found"
-          
-          # Verify config files exist
-          if [ -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
-            echo "✓ CocoaPods release config found"
-          else
-            echo "✗ CocoaPods release config NOT found"
-            echo "Current directory: $(pwd)"
-            echo "Checking for Pods directory..."
-            ls -la Pods/ || echo "Pods directory doesn't exist"
-            echo "Pod install may have failed - check output above"
-          fi
-          if [ -f "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig" ]; then
-            echo "✓ CocoaPods debug config found"
-          else
-            echo "✗ CocoaPods debug config NOT found"
-          fi
+          ls -la Pods/Target\ Support\ Files/Pods-App/Pods-App.release.xcconfig || echo "Warning: Pods config not found"
           cd ../..
       - name: Verify scheme exists
         script: |
           cd ios/App
-          echo "Checking if scheme file exists..."
-          if [ -f "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme" ]; then
-            echo "✓ Scheme file found"
-            ls -la App.xcodeproj/xcshareddata/xcschemes/
-          else
-            echo "✗ Scheme file not found - this should be committed to the repository"
+          if [ ! -f "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme" ]; then
+            echo "ERROR: Scheme file not found"
             exit 1
           fi
           cd ../..
-      - name: Set up code signing settings on Xcode project
+      - name: Set up code signing
         script: |
           cd ios/App
-          echo "=== Setting up code signing ==="
-          echo "Team ID: $TEAM_ID"
-          echo "Bundle ID: $BUNDLE_ID"
-          
-          # Step 1: Set DEVELOPMENT_TEAM in project file
-          echo "Step 1: Setting DEVELOPMENT_TEAM in project.pbxproj..."
+          # Set DEVELOPMENT_TEAM in project file
           awk -v team="$TEAM_ID" '/CODE_SIGN_STYLE = Automatic;/ {print; print "\t\t\tDEVELOPMENT_TEAM = \"" team "\";"; next} {print}' App.xcodeproj/project.pbxproj > App.xcodeproj/project.pbxproj.new && mv App.xcodeproj/project.pbxproj.new App.xcodeproj/project.pbxproj
           sed -i.bak "s/DEVELOPMENT_TEAM = \"[^\"]*\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj
           
-          # Step 2: Use Codemagic's automatic provisioning (creates profiles via App Store Connect API)
-          echo "Step 2: Creating provisioning profiles with Codemagic..."
-          echo "This should automatically create profiles using App Store Connect API..."
-          
-          # Try workspace first (preferred for CocoaPods)
+          # Use Codemagic's code signing (should create profiles automatically)
           xcode-project use-profiles \
             --team-id $TEAM_ID \
             --bundle-id $BUNDLE_ID \
-            --workspace App.xcworkspace 2>&1 | tee /tmp/codesign.log || \
-          (
-            echo "Workspace failed, trying project..."
-            xcode-project use-profiles \
-              --team-id $TEAM_ID \
-              --bundle-id $BUNDLE_ID \
-              --project App.xcodeproj 2>&1 | tee /tmp/codesign.log
-          )
-          
-          # Check if provisioning profile was created
-          echo "Step 3: Verifying provisioning profile creation..."
-          if grep -q "profile" /tmp/codesign.log 2>/dev/null || grep -q "provisioning" /tmp/codesign.log 2>/dev/null; then
-            echo "✓ Provisioning profile creation attempted"
-          fi
-          
-          # Step 4: Verify code signing configuration
-          echo "Step 4: Final code signing verification..."
-          echo "--- Development Team ---"
-          DEVELOPMENT_TEAM=$(xcodebuild -project App.xcodeproj -showBuildSettings -target App -configuration Release 2>/dev/null | grep "DEVELOPMENT_TEAM" | head -1 | sed 's/.*= *//' | xargs)
-          if [ "$DEVELOPMENT_TEAM" = "$TEAM_ID" ]; then
-            echo "✓ DEVELOPMENT_TEAM correctly set: $DEVELOPMENT_TEAM"
-          else
-            echo "✗ DEVELOPMENT_TEAM mismatch or not found. Expected: $TEAM_ID, Got: $DEVELOPMENT_TEAM"
-          fi
-          
-          echo "--- Provisioning Profile ---"
-          PROV_PROFILE=$(xcodebuild -project App.xcodeproj -showBuildSettings -target App -configuration Release 2>/dev/null | grep "PROVISIONING_PROFILE_SPECIFIER\|PROVISIONING_PROFILE" | head -1)
-          if [ -n "$PROV_PROFILE" ]; then
-            echo "✓ Provisioning profile found: $PROV_PROFILE"
-          else
-            echo "⚠ No provisioning profile found - Codemagic will create one automatically during build"
-          fi
-          
-          echo "--- Code Sign Identity ---"
-          CODE_SIGN_IDENTITY=$(xcodebuild -project App.xcodeproj -showBuildSettings -target App -configuration Release 2>/dev/null | grep "CODE_SIGN_IDENTITY" | head -1)
-          echo "CODE_SIGN_IDENTITY: $CODE_SIGN_IDENTITY"
-          
+            --workspace App.xcworkspace || \
+          xcode-project use-profiles \
+            --team-id $TEAM_ID \
+            --bundle-id $BUNDLE_ID \
+            --project App.xcodeproj
           cd ../..
-      - name: Verify workspace and scheme
-        script: |
-          echo "Listing schemes in workspace..."
-          xcodebuild -workspace "$XCODE_WORKSPACE" -list || echo "Workspace listing failed"
-          echo ""
-          echo "Listing schemes in project..."
-          xcodebuild -project ios/App/App.xcodeproj -list || echo "Project listing failed"
-          echo ""
-          echo "Checking if scheme file exists..."
-          ls -la ios/App/App.xcodeproj/xcshareddata/xcschemes/ || echo "Scheme directory not found"
-          echo ""
-          echo "Checking workspace contents..."
-          ls -la ios/App/App.xcworkspace/contents.xcworkspacedata || echo "Workspace file not found"
       - name: Build ipa for distribution
         script: |
           cd ios/App
-          # Ensure archive directory exists
           mkdir -p "$CM_BUILD_DIR"
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
-          echo "Archive will be created at: $ARCHIVE_PATH"
           
-          # Verify Pods files exist before building
-          echo "Verifying CocoaPods setup..."
-          if [ ! -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
-            echo "ERROR: CocoaPods config files not found - re-running pod install..."
-            pod install
-            if [ ! -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
-              echo "ERROR: CocoaPods setup failed - cannot proceed"
-              exit 1
-            fi
-          fi
-          
-          # Verify code signing is set up
-          echo "Checking code signing configuration..."
-          xcodebuild -project App.xcodeproj -showBuildSettings -target App | grep -E "DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY" | head -5
-          
-          # List schemes
-          echo "Listing schemes in project..."
-          xcodebuild -project App.xcodeproj -list
-          
-          # Build with workspace (scheme is now recognized!)
-          echo "Building archive with workspace..."
-          # Use -allowProvisioningUpdates to let Xcode create profiles automatically
-          # Codemagic's App Store Connect API integration will handle profile creation
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -188,49 +65,16 @@ workflows:
             -destination "generic/platform=iOS" \
             -configuration Release \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            2>&1 | tee /tmp/build.log
+            CODE_SIGN_STYLE=Automatic
           
-          # Check exit status
-          BUILD_EXIT_CODE=$?
-          echo "Build exit code: $BUILD_EXIT_CODE"
-          if [ $BUILD_EXIT_CODE -ne 0 ]; then
-            echo "ERROR: Archive build failed with exit code $BUILD_EXIT_CODE"
-            exit $BUILD_EXIT_CODE
-          fi
-          
-          # Verify archive was created
-          echo "Checking if archive was created..."
-          if [ -d "$ARCHIVE_PATH" ]; then
-            echo "SUCCESS: Archive created at $ARCHIVE_PATH"
-            ls -la "$ARCHIVE_PATH"
-          else
-            echo "WARNING: Archive not found at expected path, searching..."
-            find . -name "*.xcarchive" -type d
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERROR: Archive not created"
             exit 1
           fi
           cd ../..
       - name: Export IPA
         script: |
-          echo "Looking for archive..."
-          find . -name "*.xcarchive" -type d 2>/dev/null | head -5
-          echo ""
-          echo "Checking CM_BUILD_DIR: $CM_BUILD_DIR"
-          ls -la "$CM_BUILD_DIR" || echo "CM_BUILD_DIR not found"
-          echo ""
-          # Try to find the archive
-          ARCHIVE_PATH=$(find . -name "*.xcarchive" -type d 2>/dev/null | head -1)
-          if [ -z "$ARCHIVE_PATH" ]; then
-            ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
-          fi
-          echo "Using archive path: $ARCHIVE_PATH"
-          if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERROR: Archive not found at $ARCHIVE_PATH"
-            echo "Searching for archives..."
-            find . -name "*.xcarchive" -type d
-            exit 1
-          fi
+          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist export_options.plist \
@@ -244,5 +88,4 @@ workflows:
           - robbyaw@icloud.com
         notify:
           success: true
-          failure: false
-
+          failure: true
