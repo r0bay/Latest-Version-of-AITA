@@ -72,17 +72,16 @@ workflows:
           
           # If workspace doesn't have the scheme, try to build using project but with workspace context
           if echo "$WORKSPACE_SCHEMES" | grep -q "App"; then
-            echo "Building with workspace (scheme found)..."
-            xcodebuild build archive \
+            echo "Building archive with workspace (scheme found)..."
+            xcodebuild archive \
               -workspace App.xcworkspace \
               -scheme App \
               -archivePath "$ARCHIVE_PATH" \
               -allowProvisioningUpdates \
               -destination "generic/platform=iOS"
           elif echo "$PROJECT_SCHEMES" | grep -q "App"; then
-            echo "Scheme found in project, building with project file..."
-            # Build with project but ensure CocoaPods dependencies are available
-            xcodebuild build archive \
+            echo "Scheme found in project, building archive with project file..."
+            xcodebuild archive \
               -project App.xcodeproj \
               -scheme App \
               -archivePath "$ARCHIVE_PATH" \
@@ -90,13 +89,21 @@ workflows:
               -destination "generic/platform=iOS"
           else
             echo "ERROR: Scheme 'App' not found in workspace or project!"
-            echo "Trying to build anyway..."
-            xcodebuild build archive \
+            echo "Trying to build archive anyway..."
+            xcodebuild archive \
               -workspace App.xcworkspace \
               -scheme App \
               -archivePath "$ARCHIVE_PATH" \
               -allowProvisioningUpdates \
               -destination "generic/platform=iOS"
+          fi
+          
+          # Check exit status
+          BUILD_EXIT_CODE=$?
+          echo "Build exit code: $BUILD_EXIT_CODE"
+          if [ $BUILD_EXIT_CODE -ne 0 ]; then
+            echo "ERROR: Archive build failed with exit code $BUILD_EXIT_CODE"
+            exit $BUILD_EXIT_CODE
           fi
           
           # Verify archive was created
