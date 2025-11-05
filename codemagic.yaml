@@ -57,17 +57,43 @@ workflows:
           
           # Fetch signing files from App Store Connect API (creates certificates and profiles)
           echo "Fetching signing files from App Store Connect..."
-          app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE --create || \
-          app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Team ID: $TEAM_ID"
+          
+          # Try to fetch/create signing files
+          if app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE --create; then
+            echo "✓ Signing files fetched/created successfully"
+          elif app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE; then
+            echo "✓ Signing files fetched successfully"
+          else
+            echo "⚠ Warning: Failed to fetch signing files"
+            echo "This might mean:"
+            echo "1. App Store Connect API integration not properly configured"
+            echo "2. Bundle ID not registered in App Store Connect"
+            echo "3. API key doesn't have necessary permissions"
+            echo "Continuing anyway - export may fail..."
+          fi
           
           # Add certificates to keychain
           echo "Adding certificates to keychain..."
-          keychain add-certificates
+          if keychain add-certificates; then
+            echo "✓ Certificates added to keychain"
+          else
+            echo "⚠ Warning: Failed to add certificates to keychain"
+          fi
+          
+          # Verify certificates are available
+          echo "Checking for distribution certificates..."
+          security find-identity -v -p codesigning | grep "iOS Distribution" || echo "⚠ No iOS Distribution certificates found in keychain"
           
           # Apply provisioning profiles to Xcode project
           echo "Applying provisioning profiles..."
           cd ios/App
-          xcode-project use-profiles || echo "Note: use-profiles may have already applied profiles"
+          if xcode-project use-profiles; then
+            echo "✓ Provisioning profiles applied"
+          else
+            echo "⚠ Warning: use-profiles failed or profiles already applied"
+          fi
           cd ../..
       - name: Build ipa for distribution
         script: |
