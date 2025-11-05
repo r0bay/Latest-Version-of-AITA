@@ -84,7 +84,8 @@ workflows:
           echo "Setting up code signing with Team ID: $TEAM_ID"
           echo "Bundle ID: $BUNDLE_ID"
           
-          # Use xcode-project to set up code signing
+          # Use Codemagic's code signing setup
+          # This will create provisioning profiles automatically using App Store Connect API
           xcode-project use-profiles \
             --team-id $TEAM_ID \
             --bundle-id $BUNDLE_ID \
@@ -99,7 +100,10 @@ workflows:
           
           # Verify code signing was set up
           echo "Verifying code signing setup..."
-          xcodebuild -project App.xcodeproj -showBuildSettings -target App | grep -E "CODE_SIGN|DEVELOPMENT_TEAM" | head -10
+          echo "Checking development team..."
+          xcodebuild -project App.xcodeproj -showBuildSettings -target App | grep DEVELOPMENT_TEAM || echo "DEVELOPMENT_TEAM not found"
+          echo "Checking provisioning profile..."
+          xcodebuild -project App.xcodeproj -showBuildSettings -target App | grep PROVISIONING_PROFILE || echo "PROVISIONING_PROFILE not found"
           cd ../..
       - name: Verify workspace and scheme
         script: |
@@ -143,16 +147,14 @@ workflows:
           
           # Build with workspace (scheme is now recognized!)
           echo "Building archive with workspace..."
+          # Remove explicit code signing params - let Codemagic handle it automatically
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
             -archivePath "$ARCHIVE_PATH" \
             -allowProvisioningUpdates \
             -destination "generic/platform=iOS" \
-            -configuration Release \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_IDENTITY="Apple Development" \
-            CODE_SIGN_STYLE="Automatic"
+            -configuration Release
           
           # Check exit status
           BUILD_EXIT_CODE=$?
