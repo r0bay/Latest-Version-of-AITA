@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>method</key>
-    <string>app-store</string>
+    <string>app-store-connect</string>
+    <key>teamID</key>
+    <string>US86BZ3GH5</string>
     <key>uploadBitcode</key>
     <false/>
     <key>uploadSymbols</key>
@@ -12,4 +14,5 @@
     <false/>
 </dict>
 </plist>
+
 

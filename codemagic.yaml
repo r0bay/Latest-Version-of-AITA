@@ -100,10 +100,28 @@ workflows:
             echo "ERROR: Archive not found at $ARCHIVE_PATH"
             exit 1
           fi
+          
+          # Verify export_options.plist exists and has team ID
+          if [ ! -f "export_options.plist" ]; then
+            echo "ERROR: export_options.plist not found"
+            exit 1
+          fi
+          
+          echo "Exporting IPA with team ID: $TEAM_ID"
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist export_options.plist \
-            -exportPath "$CM_BUILD_DIR"
+            -exportPath "$CM_BUILD_DIR" \
+            -allowProvisioningUpdates
+          
+          # Verify IPA was created
+          if [ -f "$CM_BUILD_DIR/*.ipa" ] || [ -f "$CM_BUILD_DIR/App.ipa" ]; then
+            echo "✓ IPA exported successfully"
+            ls -la "$CM_BUILD_DIR"/*.ipa 2>/dev/null || ls -la "$CM_BUILD_DIR/App.ipa" 2>/dev/null
+          else
+            echo "ERROR: IPA not found after export"
+            exit 1
+          fi
     artifacts:
       - build/**/*.xcarchive
       - build/**/*.ipa
