@@ -86,8 +86,6 @@ workflows:
           echo "Bundle ID: $BUNDLE_ID"
           
           # Use Codemagic's automatic code signing
-          # This should automatically create provisioning profiles using App Store Connect API
-          # Try with workspace first, then project
           xcode-project use-profiles --workspace App.xcworkspace || \
           xcode-project use-profiles --project App.xcodeproj || \
           (
@@ -100,6 +98,18 @@ workflows:
               --team-id $TEAM_ID \
               --bundle-id $BUNDLE_ID \
               --project App.xcodeproj
+          )
+          
+          # Manually set development team in project file if use-profiles didn't work
+          echo "Manually setting development team..."
+          /usr/libexec/PlistBuddy -c "Set :objects:504EC3141FED79650016851F:buildSettings:DEVELOPMENT_TEAM $TEAM_ID" App.xcodeproj/project.pbxproj 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :objects:504EC3151FED79650016851F:buildSettings:DEVELOPMENT_TEAM $TEAM_ID" App.xcodeproj/project.pbxproj 2>/dev/null || \
+          (
+            echo "PlistBuddy failed, trying sed approach..."
+            # Use sed to set DEVELOPMENT_TEAM in project.pbxproj
+            sed -i.bak "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj || \
+            sed -i.bak "/DEVELOPMENT_TEAM =/s/.*/DEVELOPMENT_TEAM = $TEAM_ID;/g" App.xcodeproj/project.pbxproj || \
+            echo "Could not set DEVELOPMENT_TEAM via sed"
           )
           
           # Verify code signing was set up
