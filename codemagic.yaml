@@ -4,8 +4,6 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m1
     environment:
-      groups:
-        - apple_credentials # Add your Apple Developer credentials in Codemagic dashboard
       vars:
         APP_ID: com.randomaita.app
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
