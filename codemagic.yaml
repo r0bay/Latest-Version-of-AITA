@@ -63,17 +63,33 @@ workflows:
           echo "Team ID: $TEAM_ID"
           
           # Try to fetch/create signing files
-          if app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE --create; then
+          echo "Attempting to fetch/create signing files..."
+          FETCH_OUTPUT=$(app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE --create 2>&1)
+          FETCH_EXIT=$?
+          
+          if [ $FETCH_EXIT -eq 0 ]; then
             echo "✓ Signing files fetched/created successfully"
-          elif app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE; then
-            echo "✓ Signing files fetched successfully"
+            echo "$FETCH_OUTPUT"
           else
-            echo "⚠ Warning: Failed to fetch signing files"
-            echo "This might mean:"
-            echo "1. App Store Connect API integration not properly configured"
-            echo "2. Bundle ID not registered in App Store Connect"
-            echo "3. API key doesn't have necessary permissions"
-            echo "Continuing anyway - export may fail..."
+            echo "✗ First attempt failed, trying to fetch existing files..."
+            echo "Error output: $FETCH_OUTPUT"
+            FETCH_OUTPUT2=$(app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE 2>&1)
+            FETCH_EXIT2=$?
+            if [ $FETCH_EXIT2 -eq 0 ]; then
+              echo "✓ Signing files fetched successfully"
+              echo "$FETCH_OUTPUT2"
+            else
+              echo "✗ ERROR: Failed to fetch signing files"
+              echo "Error output: $FETCH_OUTPUT2"
+              echo ""
+              echo "This means Codemagic can't access App Store Connect API."
+              echo "Check:"
+              echo "1. App Store Connect API integration 'apple_credentials' is configured"
+              echo "2. Bundle ID '$BUNDLE_ID' is registered in App Store Connect"
+              echo "3. API key has necessary permissions"
+              echo ""
+              echo "The export step will fail without certificates."
+            fi
           fi
           
           # Add certificates to keychain
