@@ -100,17 +100,19 @@ workflows:
               --project App.xcodeproj
           )
           
-          # Manually set development team in project file if use-profiles didn't work
-          echo "Manually setting development team..."
-          /usr/libexec/PlistBuddy -c "Set :objects:504EC3141FED79650016851F:buildSettings:DEVELOPMENT_TEAM $TEAM_ID" App.xcodeproj/project.pbxproj 2>/dev/null || \
-          /usr/libexec/PlistBuddy -c "Set :objects:504EC3151FED79650016851F:buildSettings:DEVELOPMENT_TEAM $TEAM_ID" App.xcodeproj/project.pbxproj 2>/dev/null || \
-          (
-            echo "PlistBuddy failed, trying sed approach..."
-            # Use sed to set DEVELOPMENT_TEAM in project.pbxproj
-            sed -i.bak "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj || \
-            sed -i.bak "/DEVELOPMENT_TEAM =/s/.*/DEVELOPMENT_TEAM = $TEAM_ID;/g" App.xcodeproj/project.pbxproj || \
-            echo "Could not set DEVELOPMENT_TEAM via sed"
-          )
+          # Manually set development team in project file using sed
+          echo "Manually setting development team in project.pbxproj..."
+          # Find and replace DEVELOPMENT_TEAM lines in the project file
+          sed -i.bak "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj
+          sed -i.bak "s/DEVELOPMENT_TEAM = \"[^\"]*\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj
+          
+          # Also set CODE_SIGN_STYLE to Automatic
+          sed -i.bak "s/CODE_SIGN_STYLE = \"\";/CODE_SIGN_STYLE = Automatic;/g" App.xcodeproj/project.pbxproj
+          sed -i.bak "s/CODE_SIGN_STYLE = \"[^\"]*\";/CODE_SIGN_STYLE = Automatic;/g" App.xcodeproj/project.pbxproj
+          
+          # Verify the changes
+          echo "Verifying changes..."
+          grep -n "DEVELOPMENT_TEAM" App.xcodeproj/project.pbxproj | head -5 || echo "DEVELOPMENT_TEAM not found in project file"
           
           # Verify code signing was set up
           echo "Verifying code signing setup..."
