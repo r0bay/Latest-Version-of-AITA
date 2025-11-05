@@ -18,27 +18,38 @@ workflows:
           npm install
       - name: Install CocoaPods dependencies
         script: |
-          # Ensure node_modules is installed at project root (required for Podfile paths)
+          # Ensure we're in project root for path resolution
+          echo "Current directory: $(pwd)"
           echo "Verifying node_modules installation..."
+          
+          # Verify Capacitor is installed
           if [ ! -d "node_modules/@capacitor/ios" ]; then
-            echo "Capacitor iOS not found in node_modules - installing..."
+            echo "Capacitor iOS not found - running npm install..."
             npm install
           fi
           
-          # Verify Capacitor pods helper exists
-          if [ -f "node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
-            echo "✓ Capacitor pods helper found"
+          # Verify the exact path the Podfile expects
+          PODS_HELPER_PATH="../../../../node_modules/@capacitor/ios/scripts/pods_helpers.rb"
+          if [ -f "$PODS_HELPER_PATH" ]; then
+            echo "✓ Pods helper found at relative path from ios/App"
           else
-            echo "✗ Capacitor pods helper NOT found - this will fail"
-            ls -la node_modules/@capacitor/ios/scripts/ || echo "scripts directory not found"
+            echo "✗ Pods helper NOT found at expected relative path"
+            echo "Checking from project root..."
+            if [ -f "node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
+              echo "✓ Pods helper exists at project root"
+              echo "The Podfile path might be wrong for this directory structure"
+            fi
           fi
           
-          # Run pod install from ios/App directory
+          # Run pod install from ios/App directory (where Podfile is)
           cd ios/App
+          echo "Running pod install from: $(pwd)"
           pod install --repo-update
+          
           echo "Verifying CocoaPods installation..."
           ls -la Pods/Target\ Support\ Files/Pods-App/ || echo "Warning: Pods directory not found"
           ls -la App.xcworkspace || echo "Warning: Workspace not found"
+          
           # Verify config files exist
           if [ -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
             echo "✓ CocoaPods release config found"
@@ -47,6 +58,7 @@ workflows:
             echo "Current directory: $(pwd)"
             echo "Checking for Pods directory..."
             ls -la Pods/ || echo "Pods directory doesn't exist"
+            echo "Pod install may have failed - check output above"
           fi
           if [ -f "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig" ]; then
             echo "✓ CocoaPods debug config found"
