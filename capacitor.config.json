@@ -3,7 +3,7 @@
   "appName": "Random AITA",
   "webDir": "static",
   "server": {
-    "url": "https://your-app-url.herokuapp.com",
+    "url": "https://www.randomaita.com",
     "cleartext": false
   },
   "ios": {
