@@ -36,15 +36,108 @@ workflows:
         script: |
           echo "Listing schemes in workspace..."
           xcodebuild -workspace "$XCODE_WORKSPACE" -list
+          echo "Listing schemes in project..."
+          xcodebuild -project ios/App/App.xcodeproj -list
+      - name: Share scheme if needed
+        script: |
+          cd ios/App
+          # Create scheme directory if it doesn't exist
+          mkdir -p App.xcodeproj/xcshareddata/xcschemes
+          # Check if scheme exists, if not create it
+          if [ ! -f "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme" ]; then
+            echo "Creating shared scheme..."
+            # Get the first available scheme from the project
+            SCHEME_NAME=$(xcodebuild -project App.xcodeproj -list | grep -A 20 "Schemes:" | grep -v "Schemes:" | head -1 | xargs)
+            if [ -z "$SCHEME_NAME" ]; then
+              SCHEME_NAME="App"
+            fi
+            # Create a basic scheme file
+            cat > App.xcodeproj/xcshareddata/xcschemes/${SCHEME_NAME}.xcscheme << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "1500"
+   version = "1.7">
+   <BuildAction>
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "504EC3031FED79650016851F"
+               BuildableName = "App.app"
+               BlueprintName = "App"
+               ReferencedContainer = "container:App.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction>
+      <Testables>
+      </Testables>
+   </TestAction>
+   <LaunchAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      launchStyle = "0">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "504EC3031FED79650016851F"
+            BuildableName = "App.app"
+            BlueprintName = "App"
+            ReferencedContainer = "container:App.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </LaunchAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>
+EOF
+          fi
+          cd ../..
       - name: Build ipa for distribution
         script: |
           # Always use workspace (required for CocoaPods)
-          xcodebuild build archive \
-            -workspace "$XCODE_WORKSPACE" \
-            -scheme "$XCODE_SCHEME" \
-            -archivePath "$CM_BUILD_DIR/build.xcarchive" \
-            -allowProvisioningUpdates \
-            -destination "generic/platform=iOS"
+          # First verify scheme exists
+          SCHEMES=$(xcodebuild -workspace "$XCODE_WORKSPACE" -list 2>/dev/null | grep -A 20 "Schemes:" | grep -v "Schemes:" | xargs)
+          echo "Available schemes: $SCHEMES"
+          if echo "$SCHEMES" | grep -q "$XCODE_SCHEME"; then
+            echo "Using scheme: $XCODE_SCHEME"
+            xcodebuild build archive \
+              -workspace "$XCODE_WORKSPACE" \
+              -scheme "$XCODE_SCHEME" \
+              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -allowProvisioningUpdates \
+              -destination "generic/platform=iOS"
+          else
+            echo "Scheme $XCODE_SCHEME not found, trying first available scheme..."
+            FIRST_SCHEME=$(echo "$SCHEMES" | head -1)
+            if [ -z "$FIRST_SCHEME" ]; then
+              echo "No schemes found, using project build..."
+              xcodebuild build archive \
+                -project ios/App/App.xcodeproj \
+                -scheme "App" \
+                -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+                -allowProvisioningUpdates \
+                -destination "generic/platform=iOS"
+            else
+              echo "Using scheme: $FIRST_SCHEME"
+              xcodebuild build archive \
+                -workspace "$XCODE_WORKSPACE" \
+                -scheme "$FIRST_SCHEME" \
+                -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+                -allowProvisioningUpdates \
+                -destination "generic/platform=iOS"
+            fi
+          fi
       - name: Export IPA
         script: |
           xcodebuild -exportArchive \
