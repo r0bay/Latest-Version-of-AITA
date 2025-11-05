@@ -12,9 +12,20 @@ workflows:
         XCODE_SCHEME: "App"
         BUNDLE_ID: com.randomaita.app
         TEAM_ID: US86BZ3GH5
-    triggering:
-      branch:
-        - main
+workflows:
+  ios-workflow:
+    name: iOS Workflow
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      groups:
+        - apple_credentials
+      vars:
+        APP_ID: com.randomaita.app
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        BUNDLE_ID: com.randomaita.app
+        TEAM_ID: US86BZ3GH5
     scripts:
       - name: Install Node.js dependencies
         script: |
