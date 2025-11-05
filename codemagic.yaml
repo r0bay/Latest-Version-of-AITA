@@ -62,6 +62,22 @@ workflows:
           mkdir -p "$CM_BUILD_DIR"
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           
+          # Verify required files exist before building
+          echo "Verifying required files exist..."
+          if [ ! -f "App/config.xml" ]; then
+            echo "ERROR: config.xml missing - run 'npx cap sync ios' first"
+            exit 1
+          fi
+          if [ ! -f "App/capacitor.config.json" ]; then
+            echo "ERROR: capacitor.config.json missing - run 'npx cap sync ios' first"
+            exit 1
+          fi
+          if [ ! -d "App/public" ]; then
+            echo "ERROR: public directory missing - run 'npx cap sync ios' first"
+            exit 1
+          fi
+          echo "✓ All required files found"
+          
           # Build with automatic provisioning - Codemagic should create profiles via API
           # The key is -allowProvisioningUpdates which allows Xcode to create profiles automatically
           xcodebuild archive \
@@ -79,11 +95,6 @@ workflows:
           BUILD_EXIT=$?
           if [ $BUILD_EXIT -ne 0 ]; then
             echo "Build failed with exit code $BUILD_EXIT"
-            echo "This usually means provisioning profiles couldn't be created."
-            echo "Make sure:"
-            echo "1. App Store Connect API integration 'apple_credentials' is properly configured"
-            echo "2. The API key has 'App Manager' or 'Admin' role"
-            echo "3. The bundle ID 'com.randomaita.app' is registered in App Store Connect"
             exit $BUILD_EXIT
           fi
           
