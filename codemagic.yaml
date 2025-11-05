@@ -46,17 +46,61 @@ workflows:
         script: |
           echo "Listing schemes in workspace..."
           xcodebuild -workspace "$XCODE_WORKSPACE" -list || echo "Workspace listing failed"
+          echo ""
+          echo "Listing schemes in project..."
+          xcodebuild -project ios/App/App.xcodeproj -list || echo "Project listing failed"
+          echo ""
+          echo "Checking if scheme file exists..."
+          ls -la ios/App/App.xcodeproj/xcshareddata/xcschemes/ || echo "Scheme directory not found"
+          echo ""
+          echo "Checking workspace contents..."
+          ls -la ios/App/App.xcworkspace/contents.xcworkspacedata || echo "Workspace file not found"
       - name: Build ipa for distribution
         script: |
-          # ALWAYS use workspace (required for CocoaPods - project build will fail)
-          echo "Building with workspace: $XCODE_WORKSPACE"
-          echo "Using scheme: $XCODE_SCHEME"
-          xcodebuild build archive \
-            -workspace "$XCODE_WORKSPACE" \
-            -scheme "$XCODE_SCHEME" \
-            -archivePath "$CM_BUILD_DIR/build.xcarchive" \
-            -allowProvisioningUpdates \
-            -destination "generic/platform=iOS"
+          cd ios/App
+          # Try listing schemes again after all setup
+          echo "Final scheme check..."
+          WORKSPACE_SCHEMES=$(xcodebuild -workspace App.xcworkspace -list 2>/dev/null | grep -A 20 "Schemes:" | grep -v "Schemes:" | xargs || echo "")
+          PROJECT_SCHEMES=$(xcodebuild -project App.xcodeproj -list 2>/dev/null | grep -A 20 "Schemes:" | grep -v "Schemes:" | xargs || echo "")
+          echo "Workspace schemes: $WORKSPACE_SCHEMES"
+          echo "Project schemes: $PROJECT_SCHEMES"
+          
+          # If workspace doesn't have the scheme, try to build using project but with workspace context
+          if echo "$WORKSPACE_SCHEMES" | grep -q "App"; then
+            echo "Building with workspace (scheme found)..."
+            xcodebuild build archive \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -allowProvisioningUpdates \
+              -destination "generic/platform=iOS"
+          elif echo "$PROJECT_SCHEMES" | grep -q "App"; then
+            echo "Scheme found in project, building with project file..."
+            # Build with project but ensure CocoaPods dependencies are available
+            xcodebuild build archive \
+              -project App.xcodeproj \
+              -scheme App \
+              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -allowProvisioningUpdates \
+              -destination "generic/platform=iOS" \
+              -workspace App.xcworkspace 2>&1 || \
+            xcodebuild build archive \
+              -project App.xcodeproj \
+              -scheme App \
+              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -allowProvisioningUpdates \
+              -destination "generic/platform=iOS"
+          else
+            echo "ERROR: Scheme 'App' not found in workspace or project!"
+            echo "Trying to build anyway..."
+            xcodebuild build archive \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -allowProvisioningUpdates \
+              -destination "generic/platform=iOS"
+          fi
+          cd ../..
       - name: Export IPA
         script: |
           xcodebuild -exportArchive \
