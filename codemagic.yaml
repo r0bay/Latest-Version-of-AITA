@@ -33,6 +33,9 @@ workflows:
           echo "Creating shared scheme: App.xcscheme"
           printf '<?xml version="1.0" encoding="UTF-8"?>\n<Scheme\n   LastUpgradeVersion = "1500"\n   version = "1.7">\n   <BuildAction>\n      <BuildActionEntries>\n         <BuildActionEntry\n            buildForTesting = "YES"\n            buildForRunning = "YES"\n            buildForProfiling = "YES"\n            buildForArchiving = "YES"\n            buildForAnalyzing = "YES">\n            <BuildableReference\n               BuildableIdentifier = "primary"\n               BlueprintIdentifier = "504EC3031FED79650016851F"\n               BuildableName = "App.app"\n               BlueprintName = "App"\n               ReferencedContainer = "container:App.xcodeproj">\n            </BuildableReference>\n         </BuildActionEntry>\n      </BuildActionEntries>\n   </BuildAction>\n   <TestAction>\n      <Testables>\n      </Testables>\n   </TestAction>\n   <LaunchAction\n      buildConfiguration = "Debug"\n      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"\n      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"\n      launchStyle = "0">\n      <BuildableProductRunnable\n         runnableDebuggingMode = "0">\n         <BuildableReference\n            BuildableIdentifier = "primary"\n            BlueprintIdentifier = "504EC3031FED79650016851F"\n            BuildableName = "App.app"\n            BlueprintName = "App"\n            ReferencedContainer = "container:App.xcodeproj">\n         </BuildableReference>\n      </BuildableProductRunnable>\n   </LaunchAction>\n   <ArchiveAction\n      buildConfiguration = "Release"\n      revealArchiveInOrganizer = "YES">\n   </ArchiveAction>\n</Scheme>\n' > App.xcodeproj/xcshareddata/xcschemes/App.xcscheme
           ls -la App.xcodeproj/xcshareddata/xcschemes/
+          # Re-run pod install to ensure workspace recognizes the scheme
+          echo "Re-running pod install to refresh workspace..."
+          pod install
           cd ../..
       - name: Set up code signing settings on Xcode project
         script: |
@@ -58,21 +61,16 @@ workflows:
       - name: Build ipa for distribution
         script: |
           cd ios/App
-          # Try listing schemes again after all setup
-          echo "Final scheme check..."
-          WORKSPACE_SCHEMES=$(xcodebuild -workspace App.xcworkspace -list 2>/dev/null | grep -A 20 "Schemes:" | grep -v "Schemes:" | xargs || echo "")
-          PROJECT_SCHEMES=$(xcodebuild -project App.xcodeproj -list 2>/dev/null | grep -A 20 "Schemes:" | grep -v "Schemes:" | xargs || echo "")
-          echo "Workspace schemes: $WORKSPACE_SCHEMES"
-          echo "Project schemes: $PROJECT_SCHEMES"
-          
           # Ensure archive directory exists
           mkdir -p "$CM_BUILD_DIR"
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           echo "Archive will be created at: $ARCHIVE_PATH"
           
+          # List schemes to verify
+          echo "Listing schemes in workspace..."
+          xcodebuild -workspace App.xcworkspace -list
+          
           # ALWAYS use workspace (required for CocoaPods)
-          # Even if scheme detection doesn't show it in workspace, the scheme file exists
-          # and xcodebuild should be able to use it
           echo "Building archive with workspace (required for CocoaPods)..."
           xcodebuild archive \
             -workspace App.xcworkspace \
