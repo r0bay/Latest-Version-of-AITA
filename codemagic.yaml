@@ -23,7 +23,6 @@ workflows:
         script: |
           cd ios/App
           pod install --repo-update
-          echo "Verifying CocoaPods installation..."
           ls -la Pods/Target\ Support\ Files/Pods-App/Pods-App.release.xcconfig || echo "Warning: Pods config not found"
           cd ../..
       - name: Verify scheme exists
@@ -37,19 +36,28 @@ workflows:
       - name: Set up code signing
         script: |
           cd ios/App
-          # Set DEVELOPMENT_TEAM in project file
+          # Set DEVELOPMENT_TEAM in project file - this is critical
           awk -v team="$TEAM_ID" '/CODE_SIGN_STYLE = Automatic;/ {print; print "\t\t\tDEVELOPMENT_TEAM = \"" team "\";"; next} {print}' App.xcodeproj/project.pbxproj > App.xcodeproj/project.pbxproj.new && mv App.xcodeproj/project.pbxproj.new App.xcodeproj/project.pbxproj
           sed -i.bak "s/DEVELOPMENT_TEAM = \"[^\"]*\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj
           
-          # Use Codemagic's code signing (should create profiles automatically)
+          # Verify DEVELOPMENT_TEAM is set
+          if grep -q "DEVELOPMENT_TEAM = \"$TEAM_ID\"" App.xcodeproj/project.pbxproj; then
+            echo "✓ DEVELOPMENT_TEAM set correctly"
+          else
+            echo "✗ Failed to set DEVELOPMENT_TEAM"
+            exit 1
+          fi
+          
+          # Use Codemagic's code signing - this should create profiles via App Store Connect API
+          echo "Creating provisioning profiles..."
           xcode-project use-profiles \
             --team-id $TEAM_ID \
             --bundle-id $BUNDLE_ID \
-            --workspace App.xcworkspace || \
+            --workspace App.xcworkspace 2>&1 || \
           xcode-project use-profiles \
             --team-id $TEAM_ID \
             --bundle-id $BUNDLE_ID \
-            --project App.xcodeproj
+            --project App.xcodeproj 2>&1
           cd ../..
       - name: Build ipa for distribution
         script: |
@@ -57,6 +65,8 @@ workflows:
           mkdir -p "$CM_BUILD_DIR"
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           
+          # Build with automatic provisioning - Codemagic should create profiles via API
+          # The key is -allowProvisioningUpdates which allows Xcode to create profiles automatically
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -65,16 +75,34 @@ workflows:
             -destination "generic/platform=iOS" \
             -configuration Release \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+          
+          BUILD_EXIT=$?
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "Build failed with exit code $BUILD_EXIT"
+            echo "This usually means provisioning profiles couldn't be created."
+            echo "Make sure:"
+            echo "1. App Store Connect API integration 'apple_credentials' is properly configured"
+            echo "2. The API key has 'App Manager' or 'Admin' role"
+            echo "3. The bundle ID 'com.randomaita.app' is registered in App Store Connect"
+            exit $BUILD_EXIT
+          fi
           
           if [ ! -d "$ARCHIVE_PATH" ]; then
             echo "ERROR: Archive not created"
             exit 1
           fi
+          echo "✓ Archive created successfully"
           cd ../..
       - name: Export IPA
         script: |
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERROR: Archive not found at $ARCHIVE_PATH"
+            exit 1
+          fi
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist export_options.plist \
