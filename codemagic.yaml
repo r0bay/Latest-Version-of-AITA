@@ -65,13 +65,18 @@ workflows:
           echo "Workspace schemes: $WORKSPACE_SCHEMES"
           echo "Project schemes: $PROJECT_SCHEMES"
           
+          # Ensure archive directory exists
+          mkdir -p "$CM_BUILD_DIR"
+          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          echo "Archive will be created at: $ARCHIVE_PATH"
+          
           # If workspace doesn't have the scheme, try to build using project but with workspace context
           if echo "$WORKSPACE_SCHEMES" | grep -q "App"; then
             echo "Building with workspace (scheme found)..."
             xcodebuild build archive \
               -workspace App.xcworkspace \
               -scheme App \
-              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -archivePath "$ARCHIVE_PATH" \
               -allowProvisioningUpdates \
               -destination "generic/platform=iOS"
           elif echo "$PROJECT_SCHEMES" | grep -q "App"; then
@@ -80,14 +85,7 @@ workflows:
             xcodebuild build archive \
               -project App.xcodeproj \
               -scheme App \
-              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
-              -allowProvisioningUpdates \
-              -destination "generic/platform=iOS" \
-              -workspace App.xcworkspace 2>&1 || \
-            xcodebuild build archive \
-              -project App.xcodeproj \
-              -scheme App \
-              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -archivePath "$ARCHIVE_PATH" \
               -allowProvisioningUpdates \
               -destination "generic/platform=iOS"
           else
@@ -96,15 +94,43 @@ workflows:
             xcodebuild build archive \
               -workspace App.xcworkspace \
               -scheme App \
-              -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+              -archivePath "$ARCHIVE_PATH" \
               -allowProvisioningUpdates \
               -destination "generic/platform=iOS"
+          fi
+          
+          # Verify archive was created
+          echo "Checking if archive was created..."
+          if [ -d "$ARCHIVE_PATH" ]; then
+            echo "SUCCESS: Archive created at $ARCHIVE_PATH"
+            ls -la "$ARCHIVE_PATH"
+          else
+            echo "WARNING: Archive not found at expected path, searching..."
+            find . -name "*.xcarchive" -type d
           fi
           cd ../..
       - name: Export IPA
         script: |
+          echo "Looking for archive..."
+          find . -name "*.xcarchive" -type d 2>/dev/null | head -5
+          echo ""
+          echo "Checking CM_BUILD_DIR: $CM_BUILD_DIR"
+          ls -la "$CM_BUILD_DIR" || echo "CM_BUILD_DIR not found"
+          echo ""
+          # Try to find the archive
+          ARCHIVE_PATH=$(find . -name "*.xcarchive" -type d 2>/dev/null | head -1)
+          if [ -z "$ARCHIVE_PATH" ]; then
+            ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          fi
+          echo "Using archive path: $ARCHIVE_PATH"
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERROR: Archive not found at $ARCHIVE_PATH"
+            echo "Searching for archives..."
+            find . -name "*.xcarchive" -type d
+            exit 1
+          fi
           xcodebuild -exportArchive \
-            -archivePath "$CM_BUILD_DIR/build.xcarchive" \
+            -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist export_options.plist \
             -exportPath "$CM_BUILD_DIR"
     artifacts:
