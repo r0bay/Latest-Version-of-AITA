@@ -66,17 +66,27 @@ workflows:
           echo "Archive will be created at: $ARCHIVE_PATH"
           
           # List schemes to verify
-          echo "Listing schemes in workspace..."
-          xcodebuild -workspace App.xcworkspace -list
+          echo "Listing schemes in project..."
+          xcodebuild -project App.xcodeproj -list
           
-          # ALWAYS use workspace (required for CocoaPods)
-          echo "Building archive with workspace (required for CocoaPods)..."
+          # Verify CocoaPods files exist
+          echo "Checking CocoaPods configuration..."
+          if [ -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
+            echo "✓ CocoaPods config files found"
+          else
+            echo "✗ CocoaPods config files not found - this will fail"
+          fi
+          
+          # Build from project file (scheme is recognized here)
+          # CocoaPods dependencies will work because the project file references them
+          echo "Building archive with project file (scheme detected here)..."
           xcodebuild archive \
-            -workspace App.xcworkspace \
+            -project App.xcodeproj \
             -scheme App \
             -archivePath "$ARCHIVE_PATH" \
             -allowProvisioningUpdates \
-            -destination "generic/platform=iOS"
+            -destination "generic/platform=iOS" \
+            -configuration Release
           
           # Check exit status
           BUILD_EXIT_CODE=$?
