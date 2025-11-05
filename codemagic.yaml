@@ -18,6 +18,22 @@ workflows:
           npm install
       - name: Install CocoaPods dependencies
         script: |
+          # Ensure node_modules is installed at project root (required for Podfile paths)
+          echo "Verifying node_modules installation..."
+          if [ ! -d "node_modules/@capacitor/ios" ]; then
+            echo "Capacitor iOS not found in node_modules - installing..."
+            npm install
+          fi
+          
+          # Verify Capacitor pods helper exists
+          if [ -f "node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
+            echo "✓ Capacitor pods helper found"
+          else
+            echo "✗ Capacitor pods helper NOT found - this will fail"
+            ls -la node_modules/@capacitor/ios/scripts/ || echo "scripts directory not found"
+          fi
+          
+          # Run pod install from ios/App directory
           cd ios/App
           pod install --repo-update
           echo "Verifying CocoaPods installation..."
@@ -28,6 +44,9 @@ workflows:
             echo "✓ CocoaPods release config found"
           else
             echo "✗ CocoaPods release config NOT found"
+            echo "Current directory: $(pwd)"
+            echo "Checking for Pods directory..."
+            ls -la Pods/ || echo "Pods directory doesn't exist"
           fi
           if [ -f "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig" ]; then
             echo "✓ CocoaPods debug config found"
