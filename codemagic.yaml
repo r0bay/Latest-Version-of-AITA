@@ -30,6 +30,11 @@ workflows:
             exit 1
           fi
           cd ../..
+      - name: Sync Capacitor files
+        script: |
+          echo "Syncing Capacitor files to iOS directory..."
+          npx cap sync ios
+          echo "✓ Capacitor sync complete"
       - name: Set up code signing
         script: |
           cd ios/App
@@ -61,22 +66,6 @@ workflows:
           cd ios/App
           mkdir -p "$CM_BUILD_DIR"
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
-          
-          # Verify required files exist before building
-          echo "Verifying required files exist..."
-          if [ ! -f "App/config.xml" ]; then
-            echo "ERROR: config.xml missing - run 'npx cap sync ios' first"
-            exit 1
-          fi
-          if [ ! -f "App/capacitor.config.json" ]; then
-            echo "ERROR: capacitor.config.json missing - run 'npx cap sync ios' first"
-            exit 1
-          fi
-          if [ ! -d "App/public" ]; then
-            echo "ERROR: public directory missing - run 'npx cap sync ios' first"
-            exit 1
-          fi
-          echo "✓ All required files found"
           
           # Build with automatic provisioning - Codemagic should create profiles via API
           # The key is -allowProvisioningUpdates which allows Xcode to create profiles automatically
