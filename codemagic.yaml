@@ -1,6 +1,3 @@
-# Codemagic YAML Configuration
-# Place this in your repo root as codemagic.yaml
-
 workflows:
   ios-workflow:
     name: iOS Workflow
