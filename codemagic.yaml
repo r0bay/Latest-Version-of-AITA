@@ -49,17 +49,25 @@ workflows:
             echo "✗ Failed to set DEVELOPMENT_TEAM"
             exit 1
           fi
+          cd ../..
           
-          # Use Codemagic's code signing - this should create profiles via App Store Connect API
-          echo "Creating provisioning profiles..."
-          xcode-project use-profiles \
-            --team-id $TEAM_ID \
-            --bundle-id $BUNDLE_ID \
-            --workspace App.xcworkspace 2>&1 || \
-          xcode-project use-profiles \
-            --team-id $TEAM_ID \
-            --bundle-id $BUNDLE_ID \
-            --project App.xcodeproj 2>&1
+          # Initialize keychain for code signing
+          echo "Initializing keychain..."
+          keychain initialize
+          
+          # Fetch signing files from App Store Connect API (creates certificates and profiles)
+          echo "Fetching signing files from App Store Connect..."
+          app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE --create || \
+          app-store-connect fetch-signing-files $BUNDLE_ID --type IOS_APP_STORE
+          
+          # Add certificates to keychain
+          echo "Adding certificates to keychain..."
+          keychain add-certificates
+          
+          # Apply provisioning profiles to Xcode project
+          echo "Applying provisioning profiles..."
+          cd ios/App
+          xcode-project use-profiles || echo "Note: use-profiles may have already applied profiles"
           cd ../..
       - name: Build ipa for distribution
         script: |
