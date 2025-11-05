@@ -23,6 +23,17 @@ workflows:
           echo "Verifying CocoaPods installation..."
           ls -la Pods/Target\ Support\ Files/Pods-App/ || echo "Warning: Pods directory not found"
           ls -la App.xcworkspace || echo "Warning: Workspace not found"
+          # Verify config files exist
+          if [ -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
+            echo "✓ CocoaPods release config found"
+          else
+            echo "✗ CocoaPods release config NOT found"
+          fi
+          if [ -f "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig" ]; then
+            echo "✓ CocoaPods debug config found"
+          else
+            echo "✗ CocoaPods debug config NOT found"
+          fi
           cd ../..
       - name: Verify scheme exists
         script: |
@@ -65,28 +76,53 @@ workflows:
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           echo "Archive will be created at: $ARCHIVE_PATH"
           
-          # List schemes to verify
+          # Verify Pods files exist before building
+          echo "Verifying CocoaPods setup..."
+          if [ ! -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
+            echo "ERROR: CocoaPods config files not found - re-running pod install..."
+            pod install
+            if [ ! -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
+              echo "ERROR: CocoaPods setup failed - cannot proceed"
+              exit 1
+            fi
+          fi
+          
+          # List schemes
           echo "Listing schemes in project..."
           xcodebuild -project App.xcodeproj -list
           
-          # Verify CocoaPods files exist
-          echo "Checking CocoaPods configuration..."
-          if [ -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
-            echo "✓ CocoaPods config files found"
-          else
-            echo "✗ CocoaPods config files not found - this will fail"
-          fi
+          # Try building with workspace by specifying scheme file directly
+          # The workspace needs the scheme, but we can try to work around it
+          echo "Attempting to build with workspace and explicit scheme..."
           
-          # Build from project file (scheme is recognized here)
-          # CocoaPods dependencies will work because the project file references them
-          echo "Building archive with project file (scheme detected here)..."
-          xcodebuild archive \
-            -project App.xcodeproj \
-            -scheme App \
-            -archivePath "$ARCHIVE_PATH" \
-            -allowProvisioningUpdates \
-            -destination "generic/platform=iOS" \
-            -configuration Release
+          # Check if we can use the workspace with the scheme
+          SCHEME_FILE="App.xcodeproj/xcshareddata/xcschemes/App.xcscheme"
+          if [ -f "$SCHEME_FILE" ]; then
+            echo "Scheme file exists, trying workspace build..."
+            # Use workspace but xcodebuild should find the scheme from the project
+            xcodebuild archive \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -archivePath "$ARCHIVE_PATH" \
+              -allowProvisioningUpdates \
+              -destination "generic/platform=iOS" \
+              -configuration Release 2>&1 | head -100 || \
+            (
+              echo "Workspace build failed, trying project build with explicit Pods path..."
+              # Fallback: build from project but set xcconfig path explicitly
+              export XCODE_XCCONFIG_FILE="$(pwd)/Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"
+              xcodebuild archive \
+                -project App.xcodeproj \
+                -scheme App \
+                -archivePath "$ARCHIVE_PATH" \
+                -allowProvisioningUpdates \
+                -destination "generic/platform=iOS" \
+                -configuration Release
+            )
+          else
+            echo "ERROR: Scheme file not found!"
+            exit 1
+          fi
           
           # Check exit status
           BUILD_EXIT_CODE=$?
