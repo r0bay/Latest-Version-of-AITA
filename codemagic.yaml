@@ -102,17 +102,23 @@ workflows:
           
           # Manually set development team in project file using sed
           echo "Manually setting development team in project.pbxproj..."
-          # Find and replace DEVELOPMENT_TEAM lines in the project file
-          sed -i.bak "s/DEVELOPMENT_TEAM = \"\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj
-          sed -i.bak "s/DEVELOPMENT_TEAM = \"[^\"]*\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj
+          # Use awk to add DEVELOPMENT_TEAM after CODE_SIGN_STYLE lines
+          awk -v team="$TEAM_ID" '/CODE_SIGN_STYLE = Automatic;/ {print; print "\t\t\tDEVELOPMENT_TEAM = \"" team "\";"; next} {print}' App.xcodeproj/project.pbxproj > App.xcodeproj/project.pbxproj.new && mv App.xcodeproj/project.pbxproj.new App.xcodeproj/project.pbxproj
           
-          # Also set CODE_SIGN_STYLE to Automatic
+          # Also ensure CODE_SIGN_STYLE is set to Automatic (in case it's not)
           sed -i.bak "s/CODE_SIGN_STYLE = \"\";/CODE_SIGN_STYLE = Automatic;/g" App.xcodeproj/project.pbxproj
           sed -i.bak "s/CODE_SIGN_STYLE = \"[^\"]*\";/CODE_SIGN_STYLE = Automatic;/g" App.xcodeproj/project.pbxproj
           
+          # If DEVELOPMENT_TEAM already exists, update it
+          sed -i.bak "s/DEVELOPMENT_TEAM = \"[^\"]*\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj
+          
           # Verify the changes
           echo "Verifying changes..."
-          grep -n "DEVELOPMENT_TEAM" App.xcodeproj/project.pbxproj | head -5 || echo "DEVELOPMENT_TEAM not found in project file"
+          echo "DEVELOPMENT_TEAM entries:"
+          grep -n "DEVELOPMENT_TEAM" App.xcodeproj/project.pbxproj | head -10 || echo "DEVELOPMENT_TEAM not found in project file"
+          echo ""
+          echo "CODE_SIGN_STYLE entries:"
+          grep -n "CODE_SIGN_STYLE" App.xcodeproj/project.pbxproj | head -5 || echo "CODE_SIGN_STYLE not found"
           
           # Verify code signing was set up
           echo "Verifying code signing setup..."
