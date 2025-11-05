@@ -1,0 +1,12 @@
+{
+  "appId": "com.randomaita.app",
+  "appName": "Random AITA",
+  "webDir": "static",
+  "server": {
+    "url": "https://your-app-url.herokuapp.com",
+    "cleartext": false
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}

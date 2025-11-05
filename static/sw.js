@@ -1,31 +1,30 @@
-// Very small "app shell" cache so it works when flaky/offline
-const CACHE = "random-aita-v1";
-const ASSETS = [
-  "/",
-  "/static/styles.css",
-  "/static/app.js"
-];
+const CACHE_NAME = 'random-aita-v4';
+const APP_SHELL = ['/', '/static/styles.css?v=4', '/static/app.js?v=32'];
 
-// Install: pre-cache shell
-self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(APP_SHELL)));
 });
 
-// Activate: clean old caches
-self.addEventListener("activate", (e) => {
+self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     )
   );
 });
 
-// Fetch: cache-first for static, network-first for API
-self.addEventListener("fetch", (e) => {
-  const url = new URL(e.request.url);
-  if (url.pathname.startsWith("/api/")) {
-    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
-  } else {
-    e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
-  }
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  e.respondWith(
+    caches.match(req).then(cached =>
+      cached ||
+      fetch(req).then(res => {
+        if (req.method === 'GET' && new URL(req.url).origin === location.origin) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(req, copy)).catch(()=>{});
+        }
+        return res;
+      }).catch(() => cached)
+    )
+  );
 });

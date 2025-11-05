@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Random AITA",
+    "slug": "random-aita",
+    "scheme": "randomaita",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon-1024.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "bundleIdentifier": "com.yourname.randomaita",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": false }
+      }
+    },
+    "android": {
+      "package": "com.yourname.randomaita"
+    },
+    "extra": {},
+    "plugins": ["react-native-google-mobile-ads"]
+  }
+}

@@ -1,52 +1,170 @@
 // ----- element refs -----
-const titleEl = document.getElementById("title");
-const textEl  = document.getElementById("text");
-const metaEl  = document.getElementById("meta");
-const errorEl = document.getElementById("error");
-const openEl  = document.getElementById("openLink");
-const spinner = document.getElementById("spinner");
+const titleEl   = document.getElementById("title");
+const textEl    = document.getElementById("text");
+const metaEl    = document.getElementById("meta");
+const verdictEl = document.getElementById("verdict");
+const errorEl   = document.getElementById("error");
+const openEl    = document.getElementById("openLink");
 
-const subSel    = document.getElementById("subreddit");
+const subSelSettings = document.getElementById("subredditSettings");
 const sortSel   = document.getElementById("sort");
 const rangeSel  = document.getElementById("topRange");
+const topRangeRow = document.getElementById("topRangeRow");
 const nsfwChk   = document.getElementById("nsfw");
 const searchBox = document.getElementById("searchBox");
 const searchBtn = document.getElementById("searchBtn");
 
-const randomBtn = document.getElementById("randomBtn");
-const speakBtn  = document.getElementById("speak");
-const pauseBtn  = document.getElementById("pause");
-
+const randomBtn = document.getElementById("randomBtn"); // may not exist
 const voteBlock = document.getElementById("voteBlock");
-const voteYTA = document.getElementById("voteYTA");
-const voteNTA = document.getElementById("voteNTA");
-const voteESH = document.getElementById("voteESH");
-const tallyEl = document.getElementById("tally");
+const voteYTA   = document.getElementById("voteYTA");
+const voteNTA   = document.getElementById("voteNTA");
+const voteESH   = document.getElementById("voteESH");
+const tallyEl   = document.getElementById("tally");
 
-// Share + Filters + FAB (keep refs; we’ll re-wire behavior)
-const shareToggle  = document.getElementById("shareToggle");
-const shareMenu    = document.getElementById("shareMenu");
-const filterToggle = document.getElementById("filterToggle");
-const filtersPanel = document.getElementById("filters");
+// Filters + FAB
 const fabBtn       = document.getElementById("fabRandomBtn");
 
-const synth = window.speechSynthesis;
+// New UI - Note button removed
+const btnFavorite  = null; // Removed - now using tabSave
+const btnNote      = null; // Removed
+const noteModal    = document.getElementById("noteModal");
+const noteText     = document.getElementById("noteText");
+const noteSave     = document.getElementById("noteSave");
+const noteCancel   = document.getElementById("noteCancel");
+
+// Tabs and panels
+const tabSave = document.getElementById("tabSave");
+const tabFav  = document.getElementById("tabFav");
+const tabShare = document.getElementById("tabShare");
+const tabSet  = document.getElementById("tabSet");
+const panelFav = document.getElementById("panelFavorites");
+const panelShare = document.getElementById("panelShare");
+const panelSet = document.getElementById("panelSettings");
+const favoritesList = document.getElementById("favoritesList");
+const historyList   = document.getElementById("historyList");
+
+// Settings controls
+const setDefaultNSFW = document.getElementById("setDefaultNSFW");
+const setTextSize    = document.getElementById("setTextSize");
+const setDefaultSub  = document.getElementById("setDefaultSub");
+const textSizeVal    = document.getElementById("textSizeVal");
+const btnClearData   = document.getElementById("btnClearData");
+
 let currentPost = null;
 
-// subs where we disable votes and suppress flair display
+// same-origin API
+const API = {
+  random: (qs) => `/api/random?${qs}`,
+  post:   (pid) => `/api/post?id=${encodeURIComponent(pid)}`,
+  results:(pid) => `/api/results?post_id=${encodeURIComponent(pid)}`
+};
+
+// subs where we disable votes/flair
 const NO_VOTE_NO_FLAIR_SUBS = new Set(["twohottakes", "AmIOverreacting"]);
 
-// --------- helpers ----------
-function setLoading(isLoading) {
-  if (spinner) spinner.style.display = isLoading ? "inline-block" : "none";
-  if (randomBtn) randomBtn.disabled = isLoading;
-  if (errorEl) errorEl.textContent = "";
+// ---------- helpers ----------
+const STORAGE_KEYS = {
+  favorites: "aita.favorites.v1",
+  history:   "aita.history.v1",
+  notes:     "aita.notes.v1",
+  settings:  "aita.settings.v1"
+};
+
+function loadJSON(key, fallback){
+  try{ return JSON.parse(localStorage.getItem(key)) ?? fallback; }catch{ return fallback; }
 }
-function setError(msg) { if (errorEl) errorEl.textContent = msg || ""; }
+function saveJSON(key, value){
+  try{ localStorage.setItem(key, JSON.stringify(value)); }catch{}
+}
+
+function getSettings(){
+  return loadJSON(STORAGE_KEYS.settings, { defaultNSFW:false, textSize:16, defaultSub:"AmItheAsshole" });
+}
+function applySettings(){
+  const s = getSettings();
+  if (typeof s.textSize === "number") {
+    document.documentElement.style.setProperty('--body-text-size', `${s.textSize}px`);
+    if (textSizeVal) textSizeVal.textContent = `${s.textSize}px`;
+    if (setTextSize) setTextSize.value = String(s.textSize);
+  }
+  if (setDefaultNSFW) setDefaultNSFW.checked = !!s.defaultNSFW;
+  if (setDefaultSub && Array.from(setDefaultSub.options).some(o=>o.value===s.defaultSub)) setDefaultSub.value = s.defaultSub;
+  if (nsfwChk) nsfwChk.checked = !!s.defaultNSFW;
+  if (subSelSettings && s.defaultSub) subSelSettings.value = s.defaultSub;
+}
+
+function getFavorites(){ return loadJSON(STORAGE_KEYS.favorites, []); }
+function setFavorites(list){ saveJSON(STORAGE_KEYS.favorites, list); }
+function getHistory(){ return loadJSON(STORAGE_KEYS.history, []); }
+function setHistory(list){ saveJSON(STORAGE_KEYS.history, list.slice(-200)); }
+function getNotes(){ return loadJSON(STORAGE_KEYS.notes, {}); }
+function setNotes(map){ saveJSON(STORAGE_KEYS.notes, map); }
+
+function isFavorite(id){ return getFavorites().some(p=>p.id===id); }
+function toggleFavorite(post){
+  if (!post?.id) return;
+  const favs = getFavorites();
+  const idx = favs.findIndex(p=>p.id===post.id);
+  if (idx>=0) favs.splice(idx,1); else favs.push({ id:post.id, title:post.title||"(no title)" });
+  setFavorites(favs);
+  renderFavorites();
+  updateFavoriteButton();
+}
+
+function pushHistory(post){
+  if (!post?.id) return;
+  const hist = getHistory().filter(p=>p.id!==post.id);
+  hist.push({ id:post.id, title:post.title||"(no title)" });
+  setHistory(hist);
+  renderHistory();
+}
+
+function updateFavoriteButton(){
+  if (!tabSave || !currentPost?.id) return;
+  const fav = isFavorite(currentPost.id);
+  // Update tab icon to show saved state
+  const icon = tabSave.querySelector('.tab-icon');
+  if (icon) icon.textContent = fav ? '★' : '☆';
+}
+
+function renderList(listEl, items){
+  if (!listEl) return;
+  listEl.innerHTML = "";
+  if (!items.length){ listEl.innerHTML = '<li>No items yet</li>'; return; }
+  for (const item of items.slice().reverse()){
+    const li = document.createElement('li');
+    const btnOpen = document.createElement('button');
+    btnOpen.textContent = 'Open';
+    btnOpen.addEventListener('click', ()=> fetchById(item.id));
+    const title = document.createElement('div');
+    title.textContent = item.title;
+    title.style.flex = '1 1 auto';
+    li.appendChild(title);
+    li.appendChild(btnOpen);
+    if (listEl === favoritesList){
+      const btnDel = document.createElement('button');
+      btnDel.textContent = 'Remove';
+      btnDel.addEventListener('click', ()=>{ setFavorites(getFavorites().filter(p=>p.id!==item.id)); renderFavorites(); updateFavoriteButton(); });
+      li.appendChild(btnDel);
+    }
+    listEl.appendChild(li);
+  }
+}
+function renderFavorites(){ renderList(favoritesList, getFavorites()); }
+function renderHistory(){ renderList(historyList, getHistory()); }
+function setLoading(isLoading) {
+  if (randomBtn) randomBtn.disabled = isLoading;
+  if (errorEl) { errorEl.textContent = ""; errorEl.style.display = "none"; }
+}
+function setError(msg) {
+  if (!errorEl) return;
+  errorEl.textContent = String(msg || "Unknown error");
+  errorEl.style.display = "block";
+}
 
 function qs() {
   const p = new URLSearchParams();
-  if (subSel?.value) p.set("sub", subSel.value);
+  if (subSelSettings?.value) p.set("sub", subSelSettings.value);
   if (sortSel?.value && sortSel.value !== "all") p.set("sort", sortSel.value);
   if (sortSel?.value === "top" && rangeSel?.value) p.set("t", rangeSel.value);
   if (nsfwChk?.checked) p.set("nsfw", "1");
@@ -61,36 +179,96 @@ function shouldHideVotesAndFlair(post) {
   );
 }
 
-function setMetaPreVote(post) {
-  if (!metaEl) return;
-  if (shouldHideVotesAndFlair(post)) {
-    metaEl.textContent = post.over_18 ? "NSFW" : "";
-    return;
-  }
-  metaEl.textContent = post.over_18 ? "NSFW" : "";
+// ---------- verdict helpers ----------
+function normalizeVerdict(raw) {
+  if (!raw) return "";
+  const t = String(raw).toLowerCase().trim();
+
+  if (/\bnta\b|not the/.test(t)) return "NTA";
+  if (/\byta\b|asshole|a-hole/.test(t)) return "YTA";
+  if (/\besh\b|everyone/.test(t)) return "ESH";
+  if (/\bnah\b|no assholes here/.test(t)) return "NAH";
+  if (/\binfo\b|more info/.test(t)) return "INFO";
+  return "";
 }
 
-function setMetaPostVote(post) {
-  if (!metaEl) return;
-  if (shouldHideVotesAndFlair(post)) {
-    metaEl.textContent = post.over_18 ? "NSFW" : "";
+function showVerdict(text) {
+  if (!verdictEl) return;
+
+  verdictEl.style.display = "block"; // force visible
+  verdictEl.className = "verdict";   // reset classes
+
+  if (!text) {
+    verdictEl.textContent = "No verdict yet";
+    verdictEl.classList.add("v-none");
     return;
   }
-  const verdictText = post.flair ? post.flair : "No verdict yet";
-  const nsfw = post.over_18 ? " • NSFW" : "";
-  metaEl.textContent = `Verdict: ${verdictText}${nsfw}`;
+
+  const v = normalizeVerdict(text);
+
+  if (v === "NTA") {
+    verdictEl.textContent = "Not the A-hole";
+    verdictEl.classList.add("v-nta");
+  } else if (v === "YTA") {
+    verdictEl.textContent = "They’re the A-hole";
+    verdictEl.classList.add("v-yta");
+  } else if (v === "ESH") {
+    verdictEl.textContent = "Everyone Sucks Here";
+    verdictEl.classList.add("v-esh");
+  } else if (v === "NAH") {
+    verdictEl.textContent = "No A-holes Here";
+    verdictEl.classList.add("v-none");
+  } else if (v === "INFO") {
+    verdictEl.textContent = "More Info Needed";
+    verdictEl.classList.add("v-none");
+  } else {
+    verdictEl.textContent = "No verdict yet";
+    verdictEl.classList.add("v-none");
+  }
+}
+
+function hideVerdict() {
+  if (!verdictEl) return;
+  verdictEl.className = "verdict";
+  verdictEl.textContent = "";
+  verdictEl.style.display = "none";
+}
+
+// Try to pull the official verdict (results endpoint first, then flair on the post)
+async function getOfficialVerdict(post) {
+  if (!post?.id) return "";
+
+  try {
+    const res = await fetch(API.results(post.id), { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data) {
+      const v = data.verdict
+        || data.result?.verdict
+        || data.results?.verdict
+        || data.results?.top_flair
+        || data.top_flair
+        || data.verdict_label
+        || "";
+      const norm = normalizeVerdict(v);
+      if (norm) return norm;
+    }
+  } catch { /* ignore */ }
+
+  const flair =
+    post.verdict ||
+    post.flair ||
+    post.link_flair_text ||
+    post.author_flair_text ||
+    post.flair_text ||
+    "";
+  return normalizeVerdict(flair);
 }
 
 function toggleVotesVisibility(post) {
   if (!voteBlock) return;
   const hide = shouldHideVotesAndFlair(post);
   voteBlock.style.display = hide ? "none" : "flex";
-  if (hide && tallyEl) tallyEl.textContent = "";
-}
-
-function scrollToTop() {
-  const card = document.getElementById("postCard") || document.body;
-  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (tallyEl) tallyEl.textContent = "";
 }
 
 function updateView(post, yourVote=null) {
@@ -100,37 +278,30 @@ function updateView(post, yourVote=null) {
   if (openEl)  openEl.href = post.permalink || "#";
 
   toggleVotesVisibility(post);
-  if (tallyEl) tallyEl.textContent = "";
-
-  if (yourVote) setMetaPostVote(post); else setMetaPreVote(post);
-  if (!shouldHideVotesAndFlair(post)) fetchResults();
+  hideVerdict(); // never auto-show
 
   if (post?.id) {
     const url = new URL(window.location.href);
     url.searchParams.set("id", post.id);
-    if (subSel?.value) url.searchParams.set("sub", subSel.value);
+    if (subSelSettings?.value) url.searchParams.set("sub", subSelSettings.value);
     history.replaceState({}, "", url.toString());
   }
-
-  scrollToTop();
+  pushHistory(post);
+  updateFavoriteButton();
 }
 
 // --------- Fetchers ----------
 async function fetchRandom() {
   setLoading(true);
-  stopSpeech();
   try {
-    const res = await fetch(`/api/random?${qs()}`);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 404 && data.message) setError(data.message);
-      else setError(data.error || `HTTP ${res.status}`);
-      return;
-    }
-    const { post, your_vote } = await res.json();
-    updateView(post, your_vote);
+    const url = API.random(qs());
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) { setError(`Random failed: HTTP ${res.status}`); return; }
+    const { post } = await res.json();
+    if (!post) { setError("No post received from server."); return; }
+    updateView(post, null);
   } catch (e) {
-    setError(String(e));
+    setError(e?.message || String(e));
   } finally {
     setLoading(false);
   }
@@ -139,220 +310,204 @@ async function fetchRandom() {
 async function fetchById(pid) {
   if (!pid) return fetchRandom();
   setLoading(true);
-  stopSpeech();
   try {
-    const res = await fetch(`/api/post?id=${encodeURIComponent(pid)}`);
+    const res = await fetch(API.post(pid), { cache: "no-store" });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) {
-      return fetchRandom();
-    }
+    if (!res.ok || !data.ok) return fetchRandom();
     const { post, your_vote } = data;
-    updateView(post, your_vote);
-  } catch (e) {
+    updateView(post, your_vote || null);
+  } catch {
     fetchRandom();
   } finally {
     setLoading(false);
   }
 }
 
-// --------- Voting ----------
+// --------- Voting (show OFFICIAL verdict on click) ----------
 async function vote(which) {
   if (!currentPost?.id) return;
   if (shouldHideVotesAndFlair(currentPost)) return;
 
+  // fire-and-forget the user's vote; UI shows official verdict only
   try {
-    const res = await fetch("/api/vote", {
+    fetch("/api/vote", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ post_id: currentPost.id, vote: which })
-    });
-    const data = await res.json();
-
-    if (!data.ok && data.error === "already_voted") {
-      const y = data.counts?.YTA || 0;
-      const n = data.counts?.NTA || 0;
-      const e = data.counts?.ESH || 0;
-      const total = y + n + e;
-      if (tallyEl) tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
-      setMetaPostVote(currentPost);
-      setError("You can only vote once for this story.");
-      setTimeout(() => setError(""), 2000);
-      return;
-    }
-
-    if (!res.ok || !data.ok) {
-      setError(data.error || `Vote failed (HTTP ${res.status})`);
-      return;
-    }
-
-    const y = data.counts?.YTA || 0;
-    const n = data.counts?.NTA || 0;
-    const e = data.counts?.ESH || 0;
-    const total = y + n + e;
-    if (tallyEl) tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
-    setMetaPostVote(currentPost);
-  } catch (err) {
-    setError(String(err));
-  }
-}
-
-async function fetchResults() {
-  if (!currentPost?.id) return;
-  if (shouldHideVotesAndFlair(currentPost)) return;
-  try {
-    const res = await fetch(`/api/results?post_id=${encodeURIComponent(currentPost.id)}`);
-    const data = await res.json();
-    if (!res.ok || !data.ok) return;
-    const y = data.counts?.YTA || 0;
-    const n = data.counts?.NTA || 0;
-    const e = data.counts?.ESH || 0;
-    const total = y + n + e;
-    if (tallyEl) tallyEl.textContent = total > 0 ? `YTA: ${y} • NTA: ${n} • ESH: ${e}` : "";
-    if (data.your_vote) setMetaPostVote(currentPost);
+    }).catch(()=>{});
   } catch {}
-}
 
-// --------- Speech ----------
-function stopSpeech() { synth.cancel(); if (pauseBtn) pauseBtn.textContent = "⏸️ Pause"; }
-function readAloud() {
-  if (!currentPost) return;
-  stopSpeech();
-  const u = new SpeechSynthesisUtterance(`${currentPost.title}. ${currentPost.text}`);
-  synth.speak(u);
-  if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
-}
-function pauseOrResume() {
-  if (synth.speaking && !synth.paused) {
-    synth.pause(); if (pauseBtn) pauseBtn.textContent = "▶️ Resume";
-  } else if (synth.paused) {
-    synth.resume(); if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
-  }
-}
-
-// --------- Share (final, minimal, safe) ----------
-function yourPostUrl() {
-  const url = new URL(window.location.origin);
-  if (currentPost?.id) url.searchParams.set("id", currentPost.id);
-  if (subSel?.value)   url.searchParams.set("sub", subSel.value);
-  return url.toString();
-}
-function shareTextAndUrl() {
-  const url = yourPostUrl();
-  const text = currentPost?.title ? `AITA: ${currentPost.title}` : `Check this story`;
-  return { text, url };
-}
-async function copyToClipboardFallback(text) {
   try {
-    await navigator.clipboard.writeText(text);
-    alert('Link copied to clipboard 👍');
+    const official = await getOfficialVerdict(currentPost);
+    if (official) showVerdict(official);
+    else showVerdict("No verdict yet");
   } catch {
-    window.prompt('Copy this link:', text);
+    showVerdict("No verdict yet");
   }
 }
-async function openNativeShare() {
-  const tEl   = document.getElementById('title');
-  const title = (tEl && tEl.textContent.trim()) || document.title || 'Random AITA';
-  const url   = yourPostUrl();
-  const text  = title;
 
-  try { if (typeof gtag === 'function') gtag('event', 'share_opened'); } catch {}
-
-  if (navigator.share) {
-    try {
-      await navigator.share({ title, text, url });
-      try { if (typeof gtag === 'function') gtag('event', 'share_clicked', { platform: 'native' }); } catch {}
-      return; // success, done
-    } catch (err) {
-      const msg = (err && (err.name || err.message || '')).toString().toLowerCase();
-      // user cancelled -> do nothing
-      if (msg.includes('abort') || msg.includes('cancell') || msg.includes('cancelled') || msg.includes('canceled') || msg.includes('not allowed')) {
-        return;
-      }
-      // real failure -> copy fallback
-      return copyToClipboardFallback(url);
-    }
+// --------- TOP range visibility + wiring ----------
+function toggleTopRangeVisibility() {
+  if (!topRangeRow || !sortSel) return;
+  const show = sortSel.value === "top";
+  topRangeRow.style.display = show ? "flex" : "none";
+  if (!show) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("t");
+    history.replaceState({}, "", url.toString());
   }
-  // no Web Share -> copy fallback
-  return copyToClipboardFallback(url);
 }
 
-// NOTE: We intentionally DO NOT wire the old dropdown at all.
-// We hide it and wire Share button to native share only.
+// --------- Wiring ----------
+// FAB + Random - also switch to Save tab (but don't activate any panel)
+if (fabBtn) fabBtn.addEventListener("click", () => {
+  if (tabSave) {
+    // Remove active from all tabs
+    for (const btn of [tabSave,tabFav,tabShare,tabSet]) if (btn) btn.classList.remove('active');
+    // Set Save tab as active (default view)
+    tabSave.classList.add('active');
+    // Hide all panels
+    if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
+    if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
+    if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
+  }
+  fetchRandom();
+});
+if (randomBtn) randomBtn.addEventListener("click", fetchRandom);
 
-// --------- Filters / FAB wiring ----------
-if (filterToggle && filtersPanel) {
-  filterToggle.addEventListener("click", () => {
-    filtersPanel.classList.toggle("open");
-  });
-}
-if (fabBtn && randomBtn) {
-  fabBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
-}
-
-// --------- Events ----------
-if (randomBtn) randomBtn.addEventListener("click", () => { scrollToTop(); fetchRandom(); });
+// search
 if (searchBtn) searchBtn.addEventListener("click", fetchRandom);
 if (searchBox) searchBox.addEventListener("keydown", e => { if (e.key === "Enter") fetchRandom(); });
 
-if (speakBtn) speakBtn.addEventListener("click", readAloud);
-if (pauseBtn) pauseBtn.addEventListener("click", pauseOrResume);
-
-if (sortSel) sortSel.addEventListener("change", () => {
-  if (rangeSel) rangeSel.style.display = sortSel.value === "top" ? "inline-block" : "none";
-});
-
-if (subSel) subSel.addEventListener("change", () => {
+// subreddit - use Settings selector only
+function syncSubredditSelectors() {
+  if (!subSelSettings) return;
   const url = new URL(window.location.href);
-  url.searchParams.set("sub", subSel.value);
+  url.searchParams.set("sub", subSelSettings.value);
   url.searchParams.delete("id");
   history.replaceState({}, "", url.toString());
   fetchRandom();
-});
+}
 
+// Settings subreddit selector
+if (subSelSettings) {
+  subSelSettings.addEventListener("change", syncSubredditSelectors);
+}
+
+// sort + top range
+if (sortSel) {
+  sortSel.addEventListener("change", () => {
+    toggleTopRangeVisibility();
+    fetchRandom();
+  });
+}
+if (rangeSel) rangeSel.addEventListener("change", fetchRandom);
+
+// vote buttons
 if (voteYTA) voteYTA.addEventListener("click", () => vote("YTA"));
 if (voteNTA) voteNTA.addEventListener("click", () => vote("NTA"));
 if (voteESH) voteESH.addEventListener("click", () => vote("ESH"));
 
+// favorite - removed note functionality
+// Note button removed, only Save tab remains
+
+// Tabs behavior
+function setActiveTab(which){
+  for (const btn of [tabSave,tabFav,tabShare,tabSet]) if (btn) btn.classList.remove('active');
+  if (which) which.classList.add('active');
+  if (panelFav) panelFav.setAttribute('aria-hidden', String(which!==tabFav));
+  if (panelShare) panelShare.setAttribute('aria-hidden', String(which!==tabShare));
+  if (panelSet) panelSet.setAttribute('aria-hidden', String(which!==tabSet));
+}
+if (tabSave) tabSave.addEventListener('click', ()=> {
+  if (currentPost) toggleFavorite(currentPost);
+  renderFavorites();
+  setActiveTab(tabFav); // Switch to Favorites panel after saving
+});
+if (tabFav)  tabFav.addEventListener('click', ()=>{ renderFavorites(); setActiveTab(tabFav); });
+if (tabShare) tabShare.addEventListener('click', ()=> setActiveTab(tabShare));
+if (tabSet)  tabSet.addEventListener('click', ()=>{ setActiveTab(tabSet); });
+
+// Settings wiring
+function saveSettings(partial){
+  const s = { ...getSettings(), ...partial };
+  saveJSON(STORAGE_KEYS.settings, s);
+  applySettings();
+}
+if (setDefaultNSFW) setDefaultNSFW.addEventListener('change', ()=> saveSettings({ defaultNSFW: setDefaultNSFW.checked }));
+if (setTextSize) setTextSize.addEventListener('input', ()=> saveSettings({ textSize: Number(setTextSize.value||16) }));
+if (setDefaultSub) setDefaultSub.addEventListener('change', ()=> saveSettings({ defaultSub: setDefaultSub.value }));
+if (btnClearData) btnClearData.addEventListener('click', ()=>{ localStorage.clear(); location.reload(); });
+
+// Swipe to random (left/right)
+let touchStartX = null;
+document.addEventListener('touchstart', e=>{ touchStartX = e.changedTouches?.[0]?.clientX ?? null; }, {passive:true});
+document.addEventListener('touchend', e=>{
+  if (touchStartX==null) return;
+  const dx = e.changedTouches?.[0]?.clientX - touchStartX;
+  if (Math.abs(dx) > 60) fetchRandom();
+  touchStartX = null;
+}, {passive:true});
+
+// ---- Native mobile sharing (no fallback) ----
+const shareBtn = document.getElementById("shareBtn");
+if (shareBtn) {
+  shareBtn.addEventListener("click", async () => {
+    if (!navigator.share) {
+      alert("Sharing is not supported on this device");
+      return;
+    }
+    const url   = currentPost?.permalink ? `https://reddit.com${currentPost.permalink}` : window.location.href;
+    const title = currentPost?.title || "Random AITA story";
+    const text  = "Check out this AITA story";
+    try { 
+      await navigator.share({ title, text, url }); 
+    } catch (e) {
+      // User cancelled or error occurred
+      if (e.name !== 'AbortError') {
+        console.error('Error sharing:', e);
+      }
+    }
+  });
+}
+
+// Legacy share toggle removed - now using Share panel
+
 // --------- Initial load ----------
 window.addEventListener("DOMContentLoaded", () => {
-  // Hide any legacy dropdown menu if it exists
-  if (shareMenu) {
-    shareMenu.style.display = "none";
-  }
-
-  // Wire Share button safely (no capture phase, no stopImmediatePropagation)
-  if (shareToggle) {
-    // strip any legacy dropdown attributes that could re-open it
-    ["data-toggle","data-bs-toggle","data-target","data-bs-target","aria-expanded","href"].forEach(a => {
-      if (shareToggle.hasAttribute(a)) shareToggle.removeAttribute(a);
-    });
-    shareToggle.addEventListener("click", (e) => {
-      // if it's an anchor, prevent navigation
-      if (e.currentTarget.tagName === 'A') e.preventDefault();
-      openNativeShare();
-    });
-  }
-
-  // handle sub/id from URL and load first story
   const urlParams = new URLSearchParams(window.location.search);
+
   const sub = urlParams.get("sub");
-  if (sub && subSel && Array.from(subSel.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
-    subSel.value = Array.from(subSel.options).find(o => o.value.toLowerCase() === sub.toLowerCase()).value;
+  if (sub && subSelSettings && Array.from(subSelSettings.options).some(o => o.value.toLowerCase() === sub.toLowerCase())) {
+    const val = Array.from(subSelSettings.options).find(o => o.value.toLowerCase() === sub.toLowerCase()).value;
+    subSelSettings.value = val;
   }
+
+  toggleTopRangeVisibility();
+
+  // Apply persisted settings
+  applySettings();
 
   const pid = urlParams.get("id");
-
   setTimeout(() => {
     if (pid) {
       fetchById(pid);
     } else {
-      fetchRandom().catch(() => {
-        setTimeout(fetchRandom, 1500);
-      });
+      fetchRandom().catch(() => setTimeout(fetchRandom, 1200));
     }
-  }, 400);
+  }, 300);
 });
 
-// Keep topRange hidden initially
-if (rangeSel) rangeSel.style.display = "none";
-setError("");
+
+
+
+
+
+
+
+
+
+
+
+
+
