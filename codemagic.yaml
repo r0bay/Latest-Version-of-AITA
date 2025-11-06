@@ -96,6 +96,7 @@ workflows:
           
           if [ $FETCH_EXIT -eq 0 ]; then
             echo "✓ Signing files fetched/created successfully"
+            echo "Full output:"
             echo "$FETCH_OUTPUT"
           else
             echo "✗ First attempt failed, trying to fetch existing files..."
@@ -145,7 +146,12 @@ workflows:
             echo "Available identities:"
             security find-identity -v || echo "No identities found"
             echo ""
+            echo "Checking for any certificates:"
+            ls -la ~/Library/Keychains/*.keychain-db 2>/dev/null || ls -la ~/Library/Keychains/*.keychain 2>/dev/null || echo "No keychains found"
+            echo ""
             echo "The export will fail without distribution certificates."
+            echo "STOPPING BUILD - Certificates must be created before continuing"
+            exit 1
           fi
           
           # Apply provisioning profiles to Xcode project
