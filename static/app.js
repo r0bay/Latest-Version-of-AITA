@@ -133,18 +133,52 @@ function renderList(listEl, items){
   if (!items.length){ listEl.innerHTML = '<li>No items yet</li>'; return; }
   for (const item of items.slice().reverse()){
     const li = document.createElement('li');
-    const btnOpen = document.createElement('button');
-    btnOpen.textContent = 'Open';
-    btnOpen.addEventListener('click', ()=> fetchById(item.id));
+    
+    // Make the title clickable
     const title = document.createElement('div');
     title.textContent = item.title;
     title.style.flex = '1 1 auto';
+    title.style.cursor = 'pointer';
+    title.style.padding = '8px';
+    title.style.borderRadius = '4px';
+    title.addEventListener('click', () => {
+      fetchById(item.id);
+      // Switch back to main view (Save tab)
+      if (tabSave) {
+        setActiveTab(tabSave);
+        // Hide all panels to show main content
+        if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
+        if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
+        if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
+      }
+    });
+    
+    const btnOpen = document.createElement('button');
+    btnOpen.textContent = 'Open';
+    btnOpen.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent title click
+      fetchById(item.id);
+      // Switch back to main view (Save tab)
+      if (tabSave) {
+        setActiveTab(tabSave);
+        // Hide all panels to show main content
+        if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
+        if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
+        if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
+      }
+    });
+    
     li.appendChild(title);
     li.appendChild(btnOpen);
     if (listEl === favoritesList){
       const btnDel = document.createElement('button');
       btnDel.textContent = 'Remove';
-      btnDel.addEventListener('click', ()=>{ setFavorites(getFavorites().filter(p=>p.id!==item.id)); renderFavorites(); updateFavoriteButton(); });
+      btnDel.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent title click
+        setFavorites(getFavorites().filter(p=>p.id!==item.id)); 
+        renderFavorites(); 
+        updateFavoriteButton();
+      });
       li.appendChild(btnDel);
     }
     listEl.appendChild(li);
