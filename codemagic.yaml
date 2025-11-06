@@ -39,6 +39,20 @@ workflows:
           echo "✓ Capacitor sync complete"
       - name: Set up code signing
         script: |
+          echo "=== Code Signing Setup ==="
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Team ID: $TEAM_ID"
+          
+          # Verify environment variables are set
+          if [ -z "$BUNDLE_ID" ]; then
+            echo "ERROR: BUNDLE_ID not set"
+            exit 1
+          fi
+          if [ -z "$TEAM_ID" ]; then
+            echo "ERROR: TEAM_ID not set"
+            exit 1
+          fi
+          
           cd ios/App
           # Set DEVELOPMENT_TEAM in project file - this is critical
           awk -v team="$TEAM_ID" '/CODE_SIGN_STYLE = Automatic;/ {print; print "\t\t\tDEVELOPMENT_TEAM = \"" team "\";"; next} {print}' App.xcodeproj/project.pbxproj > App.xcodeproj/project.pbxproj.new && mv App.xcodeproj/project.pbxproj.new App.xcodeproj/project.pbxproj
