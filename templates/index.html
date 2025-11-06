@@ -1,13 +1,26 @@
 <!doctype html>
 <html>
 <head>
-  <!-- GA4 -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-BDXP39TTQC"></script>
+  <!-- GA4 - Only load if user hasn't opted out -->
   <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){ dataLayer.push(arguments); }
-    gtag('js', new Date());
-    gtag('config', 'G-BDXP39TTQC');
+    // Check if user has opted out of tracking (set via browser console: localStorage.setItem('ga_opt_out', 'true'))
+    const gaOptOut = localStorage.getItem('ga_opt_out') === 'true';
+    
+    if (!gaOptOut) {
+      // Load Google Analytics
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://www.googletagmanager.com/gtag/js?id=G-BDXP39TTQC';
+      document.head.appendChild(script);
+      
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){ dataLayer.push(arguments); }
+      gtag('js', new Date());
+      gtag('config', 'G-BDXP39TTQC');
+    } else {
+      // Replace gtag function with no-op to prevent errors
+      window.gtag = function() {};
+    }
   </script>
 
   <!-- Google AdSense (Auto ads) -->
@@ -29,7 +42,7 @@
     }
   </script>
 
-  <link rel="stylesheet" href="/static/styles.css?v=16">
+  <link rel="stylesheet" href="/static/styles.css?v=17">
 </head>
 <body>
 <main>
