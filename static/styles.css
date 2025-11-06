@@ -13,16 +13,19 @@ html,body{
   background:#f7f7f7; color:#111;
   font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
   overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
 }
 
 main{ 
   max-width:900px; 
   margin:24px auto 0;
   padding:0 16px;
-  padding-bottom:calc(64px + env(safe-area-inset-bottom, 0px));
+  padding-bottom:calc(64px + env(safe-area-inset-bottom, 0px) + 20px);
   min-height:calc(100vh - 24px);
   display:flex;
   flex-direction:column;
+  -webkit-overflow-scrolling:touch;
 }
 
 /* ================= HEADER ================= */
@@ -69,6 +72,7 @@ header{
   border-bottom-left-radius:0;
   border-bottom-right-radius:0;
   margin-bottom:0;
+  touch-action:pan-y;
 }
 .card:hover{ 
   box-shadow:0 6px 20px rgba(0,0,0,.12);
@@ -77,15 +81,12 @@ header{
 
 h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
 
-/* Scrollable story area */
+/* Story text area - no nested scrolling, let page scroll naturally */
 .body{
-  flex:1 1 auto; overflow-y:auto; line-height:1.55;
+  flex:1 1 auto; overflow:visible; line-height:1.55;
   white-space:pre-wrap; padding-right:6px; margin-top:6px;
-  max-height:55vh; scrollbar-width:thin; scrollbar-color:#ccc transparent;
   font-size:var(--body-text-size, 16px);
 }
-.body::-webkit-scrollbar{ width:6px; }
-.body::-webkit-scrollbar-thumb{ background:#ccc; border-radius:3px; }
 
 .meta{ color:#666; font-size:.9rem; margin-top:10px; text-align:center; }
 
@@ -182,7 +183,6 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
     border-bottom-left-radius:0;
     border-bottom-right-radius:0;
   }
-  .body{ max-height:60vh; }
   .vote button{ flex:1 1 100%; padding:14px 16px; }
 
   header{ margin-bottom:12px; }
