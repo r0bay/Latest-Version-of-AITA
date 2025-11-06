@@ -459,10 +459,9 @@ function resetDiceClickCount() {
 
 // AdMob configuration
 const ADMOB_CONFIG = {
-  // Test IDs for development (replace with your real IDs for production)
-  appId: 'ca-app-pub-3940256099942544~1458002511', // Test App ID
-  interstitialId: 'ca-app-pub-3940256099942544/4411468910', // Test Interstitial ID
-  isTesting: true // Set to false for production
+  appId: 'ca-app-pub-1896036129809749', // Your App ID
+  interstitialId: 'ca-app-pub-1896036129809749/8570376345', // Your Interstitial Ad Unit ID
+  isTesting: false // Set to false for production
 };
 
 let adMobInitialized = false;
