@@ -141,31 +141,37 @@ function renderList(listEl, items){
     title.style.cursor = 'pointer';
     title.style.padding = '8px';
     title.style.borderRadius = '4px';
-    title.addEventListener('click', () => {
-      fetchById(item.id);
-      // Switch back to main view (Save tab)
+    title.addEventListener('click', async () => {
+      // Hide all panels first to show main content immediately
       if (tabSave) {
         setActiveTab(tabSave);
-        // Hide all panels to show main content
+        // Ensure all panels are hidden
         if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
         if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
         if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
       }
+      // Scroll to top to show the story
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Load the story
+      await fetchById(item.id);
     });
     
     const btnOpen = document.createElement('button');
     btnOpen.textContent = 'Open';
-    btnOpen.addEventListener('click', (e) => {
+    btnOpen.addEventListener('click', async (e) => {
       e.stopPropagation(); // Prevent title click
-      fetchById(item.id);
-      // Switch back to main view (Save tab)
+      // Hide all panels first to show main content immediately
       if (tabSave) {
         setActiveTab(tabSave);
-        // Hide all panels to show main content
+        // Ensure all panels are hidden
         if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
         if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
         if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
       }
+      // Scroll to top to show the story
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Load the story
+      await fetchById(item.id);
     });
     
     li.appendChild(title);
