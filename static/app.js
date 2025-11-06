@@ -157,6 +157,7 @@ function renderList(listEl, items){
     });
     
     const btnOpen = document.createElement('button');
+    btnOpen.type = 'button'; // Explicitly set button type
     btnOpen.textContent = 'Open';
     btnOpen.addEventListener('click', async (e) => {
       e.stopPropagation(); // Prevent title click
@@ -175,8 +176,12 @@ function renderList(listEl, items){
       window.scrollTo({ top: 0, behavior: 'smooth' });
       // Load the story
       console.log('Calling fetchById with:', item.id);
-      await fetchById(item.id);
-      console.log('fetchById completed');
+      try {
+        await fetchById(item.id);
+        console.log('fetchById completed successfully');
+      } catch (error) {
+        console.error('Error calling fetchById:', error);
+      }
     });
     
     li.appendChild(title);
