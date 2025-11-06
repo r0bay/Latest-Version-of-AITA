@@ -457,6 +457,69 @@ function resetDiceClickCount() {
   saveJSON(STORAGE_KEYS.diceClickCount, 0);
 }
 
+// AdMob configuration
+const ADMOB_CONFIG = {
+  // Test IDs for development (replace with your real IDs for production)
+  appId: 'ca-app-pub-3940256099942544~1458002511', // Test App ID
+  interstitialId: 'ca-app-pub-3940256099942544/4411468910', // Test Interstitial ID
+  isTesting: true // Set to false for production
+};
+
+let adMobInitialized = false;
+let interstitialReady = false;
+
+// Initialize AdMob (call once on app start)
+async function initializeAdMob() {
+  if (!window.Capacitor || !window.Capacitor.isNativePlatform()) {
+    return; // Web version uses AdSense
+  }
+  
+  try {
+    const { AdMob } = window.Capacitor.Plugins;
+    if (!AdMob) {
+      console.log('AdMob plugin not available');
+      return;
+    }
+    
+    // Initialize AdMob
+    await AdMob.initialize({
+      requestTrackingAuthorization: true,
+      testingDevices: [],
+      initializeForTesting: ADMOB_CONFIG.isTesting,
+    });
+    
+    adMobInitialized = true;
+    console.log('AdMob initialized');
+    
+    // Prepare interstitial ad
+    await prepareInterstitial();
+  } catch (error) {
+    console.error('AdMob initialization error:', error);
+  }
+}
+
+// Prepare interstitial ad
+async function prepareInterstitial() {
+  if (!window.Capacitor || !window.Capacitor.isNativePlatform() || !adMobInitialized) {
+    return;
+  }
+  
+  try {
+    const { AdMob } = window.Capacitor.Plugins;
+    if (!AdMob) return;
+    
+    await AdMob.prepareInterstitial({
+      adId: ADMOB_CONFIG.interstitialId,
+      isTesting: ADMOB_CONFIG.isTesting,
+    });
+    
+    interstitialReady = true;
+    console.log('Interstitial ad prepared');
+  } catch (error) {
+    console.error('Error preparing interstitial:', error);
+  }
+}
+
 async function showAdIfNeeded() {
   const count = incrementDiceClickCount();
   
@@ -466,18 +529,31 @@ async function showAdIfNeeded() {
     // Check if we're in a Capacitor app (iOS/Android)
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
       try {
-        // Try to use AdMob plugin if available
-        // The plugin will be available after installation and sync
-        const AdMob = window.Capacitor?.Plugins?.AdMob;
-        if (AdMob && typeof AdMob.showInterstitial === 'function') {
-          // Show interstitial ad
-          await AdMob.showInterstitial();
+        const { AdMob } = window.Capacitor.Plugins;
+        if (!AdMob) {
+          console.log('AdMob plugin not available');
           return;
-        } else {
-          console.log('AdMob plugin not installed or not ready. Install @capacitor-community/admob and run npx cap sync ios');
+        }
+        
+        // Initialize if not already done
+        if (!adMobInitialized) {
+          await initializeAdMob();
+        }
+        
+        // Prepare ad if not ready
+        if (!interstitialReady) {
+          await prepareInterstitial();
+        }
+        
+        // Show interstitial ad
+        if (interstitialReady) {
+          await AdMob.showInterstitial();
+          // Prepare next ad after showing
+          interstitialReady = false;
+          setTimeout(() => prepareInterstitial(), 1000);
         }
       } catch (error) {
-        console.log('AdMob error:', error);
+        console.error('AdMob error:', error);
       }
     } else {
       // Web version - AdSense is already loaded in the HTML
