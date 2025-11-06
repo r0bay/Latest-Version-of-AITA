@@ -129,7 +129,24 @@ workflows:
           
           # Verify certificates are available
           echo "Checking for distribution certificates..."
-          security find-identity -v -p codesigning | grep "iOS Distribution" || echo "⚠ No iOS Distribution certificates found in keychain"
+          CERT_OUTPUT=$(security find-identity -v -p codesigning 2>&1)
+          echo "$CERT_OUTPUT"
+          
+          if echo "$CERT_OUTPUT" | grep -q "iOS Distribution"; then
+            echo "✓ iOS Distribution certificates found"
+          else
+            echo "✗ ERROR: No iOS Distribution certificates found in keychain"
+            echo ""
+            echo "This means the certificate fetching failed. Check the error messages above."
+            echo ""
+            echo "All certificates in keychain:"
+            security find-identity -v -p codesigning || echo "No certificates found"
+            echo ""
+            echo "Available identities:"
+            security find-identity -v || echo "No identities found"
+            echo ""
+            echo "The export will fail without distribution certificates."
+          fi
           
           # Apply provisioning profiles to Xcode project
           echo "Applying provisioning profiles..."
