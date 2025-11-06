@@ -3,7 +3,7 @@
 ## Prerequisites
 - ✅ Apple Developer Account (you mentioned you already have this)
 - ✅ Your app is deployed and working at: https://www.randomaita.com
-- ✅ Bundle ID: `app.randomaita` (already configured)
+- ✅ Bundle ID: `app.randomaita.final` (already configured)
 
 ## STEP 1: Register Bundle ID in App Store Connect
 
@@ -15,7 +15,7 @@
 6. Select **"App"** and click **Continue**
 7. Fill in:
    - **Description**: `Random AITA`
-   - **Bundle ID**: Select **"Explicit"** and enter: `app.randomaita`
+   - **Bundle ID**: Select **"Explicit"** and enter: `app.randomaita.final`
 8. Scroll down to **"Capabilities"** - make sure **"Push Notifications"** is checked if you plan to use it later (optional)
 9. Click **Continue** and then **Register**
 
@@ -28,7 +28,7 @@
    - **Platform**: iOS
    - **Name**: `Random AITA`
    - **Primary Language**: English (U.S.)
-   - **Bundle ID**: Select `app.randomaita` (from Step 1)
+   - **Bundle ID**: Select `app.randomaita.final` (from Step 1)
    - **SKU**: `random-aita-001` (any unique identifier - can be anything)
    - **User Access**: Full Access (usually)
 5. Click **Create**
@@ -107,7 +107,7 @@ If missing, you can generate them from your 1024x1024 icon using online tools.
 3. Click the **"Signing & Capabilities"** tab
 4. Check **"Automatically manage signing"**
 5. Select your **Team** (your Apple Developer account)
-6. Verify **Bundle Identifier** is: `app.randomaita`
+6. Verify **Bundle Identifier** is: `app.randomaita.final`
 7. Xcode should automatically create provisioning profiles (you may see a warning that will resolve)
 
 ## STEP 8: Set Version and Build Number
@@ -123,7 +123,7 @@ If missing, you can generate them from your 1024x1024 icon using online tools.
 Check that `capacitor.config.json` has your production URL:
 ```json
 {
-  "appId": "app.randomaita",
+  "appId": "app.randomaita.final",
   "appName": "Random AITA",
   "webDir": "static",
   "server": {
