@@ -631,6 +631,14 @@ function setActiveTab(which){
   // Don't show share panel - share tab directly triggers native share
   if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
   if (panelSet) panelSet.setAttribute('aria-hidden', String(which!==tabSet));
+  
+  // Sync desktop nav (if available)
+  if (typeof setActiveDesktopTab === 'function') {
+    if (which === tabSave && desktopTabSave) setActiveDesktopTab(desktopTabSave);
+    else if (which === tabFav && desktopTabFav) setActiveDesktopTab(desktopTabFav);
+    else if (which === tabShare && desktopTabShare) setActiveDesktopTab(desktopTabShare);
+    else if (which === tabSet && desktopTabSet) setActiveDesktopTab(desktopTabSet);
+  }
 }
 if (tabSave) tabSave.addEventListener('click', ()=> {
   if (currentPost) toggleFavorite(currentPost);
@@ -735,10 +743,63 @@ if (shareBtn) {
 
 // Legacy share toggle removed - now using Share panel
 
-// --------- Initial load ----------
+// Show/hide desktop nav based on screen size
+function updateDesktopNav() {
+  if (window.innerWidth > 600) {
+    if (desktopNav) desktopNav.style.display = 'flex';
+  } else {
+    if (desktopNav) desktopNav.style.display = 'none';
+  }
+}
+
+// Wire up desktop navigation (after DOM is ready)
+function setupDesktopNav() {
+  if (desktopTabSave) {
+    desktopTabSave.addEventListener('click', () => {
+      if (tabSave) tabSave.click();
+      setActiveDesktopTab(desktopTabSave);
+    });
+  }
+
+  if (desktopTabFav) {
+    desktopTabFav.addEventListener('click', () => {
+      if (tabFav) tabFav.click();
+      setActiveDesktopTab(desktopTabFav);
+    });
+  }
+
+  if (desktopRandomBtn) {
+    desktopRandomBtn.addEventListener('click', async () => {
+      await showAdIfNeeded();
+      fetchRandom();
+    });
+  }
+
+  if (desktopTabShare) {
+    desktopTabShare.addEventListener('click', () => {
+      if (tabShare) tabShare.click();
+      setActiveDesktopTab(desktopTabShare);
+    });
+  }
+
+  if (desktopTabSet) {
+    desktopTabSet.addEventListener('click', () => {
+      if (tabSet) tabSet.click();
+      setActiveDesktopTab(desktopTabSet);
+    });
+  }
+
+  // Update on resize
+  window.addEventListener('resize', updateDesktopNav);
+}
+
 window.addEventListener("DOMContentLoaded", async () => {
   // Initialize AdMob on app start (for iOS/Android)
   await initializeAdMob();
+  
+  // Setup desktop navigation
+  setupDesktopNav();
+  updateDesktopNav();
   
   const urlParams = new URLSearchParams(window.location.search);
 
