@@ -418,6 +418,13 @@ async function vote(which) {
   } catch {
     showVerdict("No verdict yet");
   }
+  
+  // Scroll to verdict after showing it
+  if (verdictEl) {
+    setTimeout(() => {
+      verdictEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100); // Small delay to ensure verdict is rendered
+  }
 }
 
 // --------- TOP range visibility + wiring ----------
