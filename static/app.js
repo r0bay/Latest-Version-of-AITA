@@ -662,26 +662,6 @@ function setActiveTab(which){
     }
   }
 }
-// Close panel function
-function closePanel() {
-  setActiveTab(null); // Close all panels
-}
-
-// Add close button handlers - will be set up after DOM loads
-function setupCloseButtons() {
-  const panelCloseButtons = document.querySelectorAll('.panel-close');
-  panelCloseButtons.forEach(btn => {
-    // Remove any existing listeners by cloning
-    const newBtn = btn.cloneNode(true);
-    btn.parentNode.replaceChild(newBtn, btn);
-    // Add new listener
-    newBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      closePanel();
-    });
-  });
-}
 
 if (tabSave) tabSave.addEventListener('click', ()=> {
   if (currentPost) toggleFavorite(currentPost);
