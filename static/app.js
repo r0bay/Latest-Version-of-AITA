@@ -663,6 +663,33 @@ function setActiveTab(which){
   }
 }
 
+// Close panel function
+function closePanel() {
+  // Close all panels directly
+  if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
+  if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
+  if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
+  // Remove active states from all tabs
+  for (const btn of [tabSave,tabFav,tabShare,tabSet]) if (btn) btn.classList.remove('active');
+  // Remove active states from desktop nav
+  if (typeof setActiveDesktopTab === 'function') {
+    setActiveDesktopTab(null);
+  }
+}
+
+// Setup close button handlers using event delegation (works for all panels)
+function setupCloseButtons() {
+  // Use event delegation to catch all close button clicks
+  document.addEventListener('click', function(e) {
+    if (e.target && (e.target.classList.contains('panel-close') || e.target.closest('.panel-close'))) {
+      e.stopPropagation();
+      e.preventDefault();
+      closePanel();
+      return false;
+    }
+  }, true); // Use capture phase
+}
+
 if (tabSave) tabSave.addEventListener('click', ()=> {
   if (currentPost) toggleFavorite(currentPost);
   renderFavorites();
