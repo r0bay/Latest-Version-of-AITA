@@ -156,7 +156,22 @@ workflows:
           echo "Team ID: $TEAM_ID"
           echo "Bundle ID: $BUNDLE_ID"
           
+          # Verify Pods are properly installed before building
+          echo "Verifying Pods installation..."
+          if [ ! -d "Pods/Google-Mobile-Ads-SDK" ]; then
+            echo "ERROR: Google-Mobile-Ads-SDK not found in Pods!"
+            echo "Running pod install again..."
+            pod install
+          fi
+          
+          # Verify workspace file exists
+          if [ ! -f "App.xcworkspace/contents.xcworkspacedata" ]; then
+            echo "ERROR: Workspace file not found!"
+            exit 1
+          fi
+          
           # Build with automatic provisioning
+          # Note: Using -UseModernBuildSystem=1 for better dependency resolution
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -164,13 +179,22 @@ workflows:
             -allowProvisioningUpdates \
             -destination "generic/platform=iOS" \
             -configuration Release \
+            -UseModernBuildSystem=1 \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
             SWIFT_VERSION=5.0 \
             SWIFT_OPTIMIZATION_LEVEL="-O" \
+            CLANG_ENABLE_MODULES=YES \
+            SWIFT_ENABLE_BATCH_MODE=YES \
             2>&1 | tee /tmp/xcodebuild.log || {
-            echo "Build failed. Checking logs..."
-            tail -100 /tmp/xcodebuild.log
+            echo "Build failed. Last 150 lines of log:"
+            tail -150 /tmp/xcodebuild.log
+            echo ""
+            echo "Searching for Swift compilation errors:"
+            grep -i "error\|failed\|cannot" /tmp/xcodebuild.log | tail -30
+            echo ""
+            echo "Checking for module import errors:"
+            grep -i "google\|admob\|module" /tmp/xcodebuild.log | tail -20
             exit 1
           }
           
