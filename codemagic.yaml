@@ -14,12 +14,6 @@ workflows:
         XCODE_SCHEME: "App"
         BUNDLE_ID: app.randomaita
         TEAM_ID: US86BZ3GH5
-    code_signing:
-      type: automatic
-      automatic:
-        team_id: US86BZ3GH5
-        bundle_id: app.randomaita
-        profile_type: app_store
     scripts:
       - name: Install Node.js dependencies
         script: |
