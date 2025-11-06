@@ -737,7 +737,10 @@ if (shareBtn) {
 // Legacy share toggle removed - now using Share panel
 
 // --------- Initial load ----------
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
+  // Initialize AdMob on app start (for iOS/Android)
+  await initializeAdMob();
+  
   const urlParams = new URLSearchParams(window.location.search);
 
   const sub = urlParams.get("sub");
