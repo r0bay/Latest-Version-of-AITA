@@ -37,6 +37,19 @@ workflows:
           echo "Syncing Capacitor files to iOS directory..."
           npx cap sync ios
           echo "✓ Capacitor sync complete"
+      - name: Verify App Store Connect integration
+        script: |
+          echo "=== Verifying App Store Connect API Integration ==="
+          echo "Checking if app-store-connect CLI is available..."
+          which app-store-connect || echo "⚠ app-store-connect command not found"
+          
+          echo "Checking environment variables..."
+          echo "BUNDLE_ID: $BUNDLE_ID"
+          echo "TEAM_ID: $TEAM_ID"
+          
+          # Try to test the connection
+          echo "Testing App Store Connect API connection..."
+          app-store-connect fetch-signing-files --help || echo "⚠ Could not get help for app-store-connect"
       - name: Set up code signing
         script: |
           echo "=== Code Signing Setup ==="
