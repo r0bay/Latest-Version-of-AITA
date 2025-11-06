@@ -443,7 +443,40 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
     display: block !important;
   }
 }
+.panel{ position:relative; }
 .panel h3{ margin:0 0 16px; font-size:1.25rem; }
+
+/* Panel close button */
+.panel-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 28px;
+  line-height: 1;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  z-index: 10;
+  padding: 0;
+}
+
+.panel-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.panel-close:active {
+  background: #e0e0e0;
+  transform: scale(0.95);
+}
 .list{ list-style:none; padding:0; margin:0; }
 .list li{ padding:12px 8px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; gap:10px; }
 .list li > div{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

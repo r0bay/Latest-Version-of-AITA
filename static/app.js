@@ -633,7 +633,6 @@ if (voteESH) voteESH.addEventListener("click", () => vote("ESH"));
 
 // Desktop navigation helper (defined before setActiveTab)
 function setActiveDesktopTab(activeBtn) {
-  if (!activeBtn) return;
   const buttons = [desktopTabSave, desktopTabFav, desktopTabShare, desktopTabSet];
   buttons.forEach(btn => {
     if (btn) btn.classList.remove('active');
@@ -645,17 +644,38 @@ function setActiveDesktopTab(activeBtn) {
 function setActiveTab(which){
   for (const btn of [tabSave,tabFav,tabShare,tabSet]) if (btn) btn.classList.remove('active');
   if (which) which.classList.add('active');
-  if (panelFav) panelFav.setAttribute('aria-hidden', String(which!==tabFav));
+  // If which is null, close all panels
+  if (panelFav) panelFav.setAttribute('aria-hidden', String(!which || which!==tabFav));
   // Don't show share panel - share tab directly triggers native share
   if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
-  if (panelSet) panelSet.setAttribute('aria-hidden', String(which!==tabSet));
+  if (panelSet) panelSet.setAttribute('aria-hidden', String(!which || which!==tabSet));
   
   // Sync desktop nav
   if (which === tabSave && desktopTabSave) setActiveDesktopTab(desktopTabSave);
   else if (which === tabFav && desktopTabFav) setActiveDesktopTab(desktopTabFav);
   else if (which === tabShare && desktopTabShare) setActiveDesktopTab(desktopTabShare);
   else if (which === tabSet && desktopTabSet) setActiveDesktopTab(desktopTabSet);
+  else if (!which) {
+    // Close all desktop nav active states
+    if (setActiveDesktopTab) {
+      setActiveDesktopTab(null);
+    }
+  }
 }
+// Close panel function
+function closePanel() {
+  setActiveTab(null); // Close all panels
+}
+
+// Add close button handlers
+const panelCloseButtons = document.querySelectorAll('.panel-close');
+panelCloseButtons.forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closePanel();
+  });
+});
+
 if (tabSave) tabSave.addEventListener('click', ()=> {
   if (currentPost) toggleFavorite(currentPost);
   renderFavorites();
