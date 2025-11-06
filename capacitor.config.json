@@ -1,5 +1,5 @@
 {
-  "appId": "com.randomaita.app",
+  "appId": "app.randomaita",
   "appName": "Random AITA",
   "webDir": "static",
   "server": {

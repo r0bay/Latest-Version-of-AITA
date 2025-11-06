@@ -9,10 +9,10 @@ workflows:
       groups:
         - apple_credentials
       vars:
-        APP_ID: com.randomaita.app
+        APP_ID: app.randomaita
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
         XCODE_SCHEME: "App"
-        BUNDLE_ID: com.randomaita.app
+        BUNDLE_ID: app.randomaita
         TEAM_ID: US86BZ3GH5
     scripts:
       - name: Install Node.js dependencies
@@ -181,7 +181,7 @@ workflows:
             echo "Make sure:"
             echo "1. App Store Connect API integration 'apple_credentials' is configured in Codemagic"
             echo "2. The API key has 'App Manager' or 'Admin' role"
-            echo "3. The bundle ID 'com.randomaita.app' is registered in App Store Connect"
+            echo "3. The bundle ID 'app.randomaita' is registered in App Store Connect"
             echo ""
             echo "Contents of export directory:"
             ls -la "$CM_BUILD_DIR"
