@@ -272,15 +272,6 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
     box-shadow: 0 8px 32px rgba(0,0,0,.2) !important;
     z-index: 1001 !important;
     background: #fff !important;
-    padding-top: 60px !important; /* Make room for close button */
-  }
-  
-  /* Position close button relative to viewport on desktop */
-  .panel[aria-hidden="false"] .panel-close {
-    position: fixed !important;
-    top: calc(50% - 37.5vh + 20px) !important; /* Center of modal - half modal height + padding */
-    right: calc(50% - 275px + 20px) !important; /* Center of modal - half modal width + padding */
-    z-index: 1004 !important;
   }
 }
 
