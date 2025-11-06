@@ -160,6 +160,9 @@ function renderList(listEl, items){
     btnOpen.textContent = 'Open';
     btnOpen.addEventListener('click', async (e) => {
       e.stopPropagation(); // Prevent title click
+      e.preventDefault(); // Prevent any default behavior
+      console.log('Open button clicked for story:', item.id, item.title);
+      
       // Hide all panels first to show main content immediately
       if (tabSave) {
         setActiveTab(tabSave);
@@ -171,7 +174,9 @@ function renderList(listEl, items){
       // Scroll to top to show the story
       window.scrollTo({ top: 0, behavior: 'smooth' });
       // Load the story
+      console.log('Calling fetchById with:', item.id);
       await fetchById(item.id);
+      console.log('fetchById completed');
     });
     
     li.appendChild(title);
@@ -348,15 +353,28 @@ async function fetchRandom() {
 }
 
 async function fetchById(pid) {
-  if (!pid) return fetchRandom();
+  console.log('fetchById called with pid:', pid);
+  if (!pid) {
+    console.log('No pid provided, calling fetchRandom');
+    return fetchRandom();
+  }
   setLoading(true);
   try {
-    const res = await fetch(API.post(pid), { cache: "no-store" });
+    const url = API.post(pid);
+    console.log('Fetching from URL:', url);
+    const res = await fetch(url, { cache: "no-store" });
+    console.log('Response status:', res.status, res.ok);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) return fetchRandom();
+    console.log('Response data:', data);
+    if (!res.ok || !data.ok) {
+      console.log('Response not ok, calling fetchRandom');
+      return fetchRandom();
+    }
     const { post, your_vote } = data;
+    console.log('Updating view with post:', post?.id, post?.title);
     updateView(post, your_vote || null);
-  } catch {
+  } catch (error) {
+    console.error('Error in fetchById:', error);
     fetchRandom();
   } finally {
     setLoading(false);
