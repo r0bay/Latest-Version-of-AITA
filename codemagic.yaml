@@ -49,8 +49,21 @@ workflows:
       - name: Sync Capacitor files
         script: |
           echo "Syncing Capacitor files to iOS directory..."
-          npx cap sync ios
+          npx cap sync ios || {
+            echo "Capacitor sync failed!"
+            exit 1
+          }
           echo "✓ Capacitor sync complete"
+          echo "Verifying AppDelegate.swift exists..."
+          if [ ! -f "ios/App/App/AppDelegate.swift" ]; then
+            echo "ERROR: AppDelegate.swift not found!"
+            exit 1
+          fi
+          echo "✓ AppDelegate.swift found"
+          echo "Re-running pod install after Capacitor sync..."
+          cd ios/App
+          pod install
+          cd ../..
       - name: Verify App Store Connect integration
         script: |
           echo "=== Verifying App Store Connect API Integration ==="
