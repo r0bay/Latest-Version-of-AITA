@@ -21,8 +21,22 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios/App
-          pod install --repo-update
-          ls -la Pods/Target\ Support\ Files/Pods-App/Pods-App.release.xcconfig || echo "Warning: Pods config not found"
+          echo "Installing CocoaPods dependencies..."
+          pod install --repo-update || {
+            echo "Pod install failed, trying without repo update..."
+            pod install
+          }
+          echo "Verifying Pods installation..."
+          if [ ! -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
+            echo "Warning: Pods config not found, but continuing..."
+          else
+            echo "✓ Pods installed successfully"
+          fi
+          echo "Verifying workspace exists..."
+          if [ ! -f "App.xcworkspace/contents.xcworkspacedata" ]; then
+            echo "ERROR: Workspace file not found!"
+            exit 1
+          fi
           cd ../..
       - name: Verify scheme exists
         script: |
@@ -107,14 +121,29 @@ workflows:
             echo "Certificates will be created automatically during the build process"
             echo "Xcode will create them via -allowProvisioningUpdates"
           fi
+      - name: Clean build folder
+        script: |
+          cd ios/App
+          echo "Cleaning build folder..."
+          xcodebuild clean \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release
+          cd ../..
       - name: Build ipa for distribution
         script: |
           cd ios/App
           mkdir -p "$CM_BUILD_DIR"
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           
-          # Build with automatic provisioning - Codemagic should create profiles via API
-          # The key is -allowProvisioningUpdates which allows Xcode to create profiles automatically
+          echo "Building archive..."
+          echo "Workspace: App.xcworkspace"
+          echo "Scheme: App"
+          echo "Archive path: $ARCHIVE_PATH"
+          echo "Team ID: $TEAM_ID"
+          echo "Bundle ID: $BUNDLE_ID"
+          
+          # Build with automatic provisioning
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -124,20 +153,21 @@ workflows:
             -configuration Release \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="" \
-            PROVISIONING_PROFILE_SPECIFIER=""
-          
-          BUILD_EXIT=$?
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "Build failed with exit code $BUILD_EXIT"
-            exit $BUILD_EXIT
-          fi
+            SWIFT_VERSION=5.0 \
+            SWIFT_OPTIMIZATION_LEVEL="-O" \
+            2>&1 | tee /tmp/xcodebuild.log || {
+            echo "Build failed. Checking logs..."
+            tail -100 /tmp/xcodebuild.log
+            exit 1
+          }
           
           if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERROR: Archive not created"
+            echo "ERROR: Archive not created at $ARCHIVE_PATH"
+            echo "Build log:"
+            tail -100 /tmp/xcodebuild.log
             exit 1
           fi
-          echo "✓ Archive created successfully"
+          echo "✓ Archive created successfully at $ARCHIVE_PATH"
           cd ../..
       - name: Export IPA
         script: |
