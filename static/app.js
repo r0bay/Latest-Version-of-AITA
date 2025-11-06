@@ -43,6 +43,14 @@ const panelSet = document.getElementById("panelSettings");
 const favoritesList = document.getElementById("favoritesList");
 const historyList   = document.getElementById("historyList");
 
+// Desktop navigation
+const desktopNav = document.querySelector('.desktop-nav');
+const desktopTabSave = document.getElementById("desktopTabSave");
+const desktopTabFav = document.getElementById("desktopTabFav");
+const desktopRandomBtn = document.getElementById("desktopRandomBtn");
+const desktopTabShare = document.getElementById("desktopTabShare");
+const desktopTabSet = document.getElementById("desktopTabSet");
+
 // Settings controls
 const setDefaultNSFW = document.getElementById("setDefaultNSFW");
 const setTextSize    = document.getElementById("setTextSize");
