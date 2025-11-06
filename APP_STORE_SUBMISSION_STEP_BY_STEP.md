@@ -264,7 +264,7 @@ If Apple rejects your app:
 **Solution**: Make sure you created the app in App Store Connect (Step 2) BEFORE uploading the build.
 
 ### Issue: "Invalid Bundle Identifier"
-**Solution**: Verify Bundle ID in Xcode matches App Store Connect exactly: `app.randomaita`
+**Solution**: Verify Bundle ID in Xcode matches App Store Connect exactly: `app.randomaita.final`
 
 ### Issue: "Missing Privacy Policy"
 **Solution**: Ensure `https://www.randomaita.com/privacy` is publicly accessible without login.
