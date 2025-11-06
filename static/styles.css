@@ -272,6 +272,15 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
     box-shadow: 0 8px 32px rgba(0,0,0,.2) !important;
     z-index: 1001 !important;
     background: #fff !important;
+    padding-top: 60px !important; /* Make room for close button */
+  }
+  
+  /* Position close button relative to viewport on desktop */
+  .panel[aria-hidden="false"] .panel-close {
+    position: fixed !important;
+    top: calc(50% - 37.5vh + 20px) !important; /* Center of modal - half modal height + padding */
+    right: calc(50% - 275px + 20px) !important; /* Center of modal - half modal width + padding */
+    z-index: 1004 !important;
   }
 }
 
@@ -431,8 +440,10 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
   border-top-right-radius:16px; 
   box-shadow:0 -8px 24px rgba(0,0,0,.12); 
   padding:20px 16px 16px; 
+  padding-top: 60px !important; /* Make room for close button */
   display:none; 
   overflow:auto;
+  overflow-x: hidden;
   z-index:998;
 }
 .panel[aria-hidden="false"]{ display:block; }
@@ -443,31 +454,39 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
     display: block !important;
   }
 }
-.panel{ 
-  position:relative; 
+/* Panel container - ensure close button is visible */
+.panel {
+  position: relative;
   overflow: visible !important;
+}
+
+/* Ensure close button is always on top and visible */
+.panel[aria-hidden="false"] .panel-close {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 .panel h3{ margin:0 0 16px; font-size:1.25rem; }
 
 /* Panel close button */
 .panel-close {
-  position: absolute !important;
-  top: 12px !important;
-  right: 12px !important;
-  width: 36px !important;
-  height: 36px !important;
-  border: 2px solid #ddd !important;
+  position: fixed !important;
+  top: 20px !important;
+  right: 20px !important;
+  width: 40px !important;
+  height: 40px !important;
+  border: 2px solid #999 !important;
   background: #fff !important;
-  font-size: 28px !important;
+  font-size: 30px !important;
   line-height: 1 !important;
-  color: #333 !important;
+  color: #000 !important;
   cursor: pointer !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   border-radius: 50% !important;
   transition: all 0.2s ease;
-  z-index: 1002 !important;
+  z-index: 1003 !important;
   padding: 0 !important;
   margin: 0 !important;
   user-select: none;
@@ -476,6 +495,7 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
   visibility: visible !important;
   opacity: 1 !important;
   font-weight: bold;
+  box-shadow: 0 2px 8px rgba(0,0,0,.2) !important;
 }
 
 .panel-close:hover {
