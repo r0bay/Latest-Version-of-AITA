@@ -65,6 +65,7 @@ const NO_VOTE_NO_FLAIR_SUBS = new Set(["twohottakes", "AmIOverreacting"]);
 // ---------- helpers ----------
 const STORAGE_KEYS = {
   favorites: "aita.favorites.v1",
+  diceClickCount: "aita.diceClickCount.v1",
   history:   "aita.history.v1",
   notes:     "aita.notes.v1",
   settings:  "aita.settings.v1"
@@ -439,9 +440,56 @@ function toggleTopRangeVisibility() {
   }
 }
 
+// --------- Ad Management ----------
+const ADS_EVERY_N_CLICKS = 5;
+
+function getDiceClickCount() {
+  return parseInt(loadJSON(STORAGE_KEYS.diceClickCount, 0), 10) || 0;
+}
+
+function incrementDiceClickCount() {
+  const count = getDiceClickCount() + 1;
+  saveJSON(STORAGE_KEYS.diceClickCount, count);
+  return count;
+}
+
+function resetDiceClickCount() {
+  saveJSON(STORAGE_KEYS.diceClickCount, 0);
+}
+
+async function showAdIfNeeded() {
+  const count = incrementDiceClickCount();
+  
+  if (count >= ADS_EVERY_N_CLICKS) {
+    resetDiceClickCount();
+    
+    // Check if we're in a Capacitor app (iOS/Android)
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+      try {
+        // Try to use AdMob plugin if available
+        // The plugin will be available after installation and sync
+        const AdMob = window.Capacitor?.Plugins?.AdMob;
+        if (AdMob && typeof AdMob.showInterstitial === 'function') {
+          // Show interstitial ad
+          await AdMob.showInterstitial();
+          return;
+        } else {
+          console.log('AdMob plugin not installed or not ready. Install @capacitor-community/admob and run npx cap sync ios');
+        }
+      } catch (error) {
+        console.log('AdMob error:', error);
+      }
+    } else {
+      // Web version - AdSense is already loaded in the HTML
+      // Ads will show automatically via AdSense auto ads
+      console.log('Web version: AdSense auto ads are active');
+    }
+  }
+}
+
 // --------- Wiring ----------
 // FAB + Random - also switch to Save tab (but don't activate any panel)
-if (fabBtn) fabBtn.addEventListener("click", () => {
+if (fabBtn) fabBtn.addEventListener("click", async () => {
   if (tabSave) {
     // Remove active from all tabs
     for (const btn of [tabSave,tabFav,tabShare,tabSet]) if (btn) btn.classList.remove('active');
@@ -452,9 +500,17 @@ if (fabBtn) fabBtn.addEventListener("click", () => {
     if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
     if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
   }
+  
+  // Show ad if needed (after 5 clicks)
+  await showAdIfNeeded();
+  
   fetchRandom();
 });
-if (randomBtn) randomBtn.addEventListener("click", fetchRandom);
+
+if (randomBtn) randomBtn.addEventListener("click", async () => {
+  await showAdIfNeeded();
+  fetchRandom();
+});
 
 // search
 if (searchBtn) searchBtn.addEventListener("click", fetchRandom);
