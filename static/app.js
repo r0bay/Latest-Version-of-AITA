@@ -157,39 +157,43 @@ function renderList(listEl, items){
     });
     
     const btnOpen = document.createElement('button');
-    btnOpen.type = 'button'; // Explicitly set button type
+    btnOpen.type = 'button';
     btnOpen.textContent = 'Open';
-    btnOpen.style.pointerEvents = 'auto'; // Ensure button is clickable
-    btnOpen.style.zIndex = '10'; // Ensure button is above other elements
-    btnOpen.addEventListener('click', async (e) => {
-      e.stopPropagation(); // Prevent title click
-      e.preventDefault(); // Prevent any default behavior
-      e.stopImmediatePropagation(); // Prevent other handlers
+    btnOpen.className = 'list-button-open'; // Add class for styling if needed
+    btnOpen.addEventListener('click', async function(e) {
+      e.stopPropagation();
+      e.preventDefault();
       console.log('Open button clicked for story:', item.id, item.title);
       
-      // Hide all panels first to show main content immediately
+      // Hide all panels first
+      if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
+      if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
+      if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
+      
+      // Switch to Save tab (main view)
       if (tabSave) {
         setActiveTab(tabSave);
-        // Ensure all panels are hidden
-        if (panelFav) panelFav.setAttribute('aria-hidden', 'true');
-        if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
-        if (panelSet) panelSet.setAttribute('aria-hidden', 'true');
       }
-      // Scroll to top to show the story
+      
+      // Scroll to top
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      
       // Load the story
-      console.log('Calling fetchById with:', item.id);
       if (!item.id) {
         console.error('No ID found for item:', item);
+        alert('Error: Story ID not found');
         return;
       }
+      
+      console.log('Calling fetchById with:', item.id);
       try {
         await fetchById(item.id);
         console.log('fetchById completed successfully');
       } catch (error) {
         console.error('Error calling fetchById:', error);
+        alert('Error loading story. Please try again.');
       }
-    }, true); // Use capture phase to ensure we catch the event
+    });
     
     li.appendChild(title);
     li.appendChild(btnOpen);
