@@ -490,7 +490,8 @@ function setActiveTab(which){
   for (const btn of [tabSave,tabFav,tabShare,tabSet]) if (btn) btn.classList.remove('active');
   if (which) which.classList.add('active');
   if (panelFav) panelFav.setAttribute('aria-hidden', String(which!==tabFav));
-  if (panelShare) panelShare.setAttribute('aria-hidden', String(which!==tabShare));
+  // Don't show share panel - share tab directly triggers native share
+  if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
   if (panelSet) panelSet.setAttribute('aria-hidden', String(which!==tabSet));
 }
 if (tabSave) tabSave.addEventListener('click', ()=> {
@@ -499,7 +500,24 @@ if (tabSave) tabSave.addEventListener('click', ()=> {
   setActiveTab(tabFav); // Switch to Favorites panel after saving
 });
 if (tabFav)  tabFav.addEventListener('click', ()=>{ renderFavorites(); setActiveTab(tabFav); });
-if (tabShare) tabShare.addEventListener('click', ()=> setActiveTab(tabShare));
+if (tabShare) tabShare.addEventListener('click', async () => {
+  // Directly open native share sheet, don't show panel
+  if (!navigator.share) {
+    alert("Sharing is not supported on this device");
+    return;
+  }
+  const url   = currentPost?.permalink ? `https://reddit.com${currentPost.permalink}` : window.location.href;
+  const title = currentPost?.title || "Random AITA story";
+  const text  = "Check out this AITA story";
+  try { 
+    await navigator.share({ title, text, url }); 
+  } catch (e) {
+    // User cancelled or error occurred
+    if (e.name !== 'AbortError') {
+      console.error('Error sharing:', e);
+    }
+  }
+});
 if (tabSet)  tabSet.addEventListener('click', ()=>{ setActiveTab(tabSet); });
 
 // Settings wiring
@@ -554,7 +572,8 @@ document.addEventListener('touchend', e=>{
   touchMoved = false;
 }, {passive:true});
 
-// ---- Native mobile sharing (no fallback) ----
+// Share button in panel (kept for backward compatibility, but panel is hidden)
+// The tabShare button now directly triggers native share
 const shareBtn = document.getElementById("shareBtn");
 if (shareBtn) {
   shareBtn.addEventListener("click", async () => {
