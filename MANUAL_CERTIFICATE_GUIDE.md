@@ -56,3 +56,4 @@ Once you have a distribution certificate:
 
 Let me know if you have access to a Mac with Xcode, or if you'd prefer to create the certificate manually via the Developer Portal.
 
+
