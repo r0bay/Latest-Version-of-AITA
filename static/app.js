@@ -159,9 +159,12 @@ function renderList(listEl, items){
     const btnOpen = document.createElement('button');
     btnOpen.type = 'button'; // Explicitly set button type
     btnOpen.textContent = 'Open';
+    btnOpen.style.pointerEvents = 'auto'; // Ensure button is clickable
+    btnOpen.style.zIndex = '10'; // Ensure button is above other elements
     btnOpen.addEventListener('click', async (e) => {
       e.stopPropagation(); // Prevent title click
       e.preventDefault(); // Prevent any default behavior
+      e.stopImmediatePropagation(); // Prevent other handlers
       console.log('Open button clicked for story:', item.id, item.title);
       
       // Hide all panels first to show main content immediately
@@ -176,13 +179,17 @@ function renderList(listEl, items){
       window.scrollTo({ top: 0, behavior: 'smooth' });
       // Load the story
       console.log('Calling fetchById with:', item.id);
+      if (!item.id) {
+        console.error('No ID found for item:', item);
+        return;
+      }
       try {
         await fetchById(item.id);
         console.log('fetchById completed successfully');
       } catch (error) {
         console.error('Error calling fetchById:', error);
       }
-    });
+    }, true); // Use capture phase to ensure we catch the event
     
     li.appendChild(title);
     li.appendChild(btnOpen);
@@ -505,20 +512,42 @@ if (btnClearData) btnClearData.addEventListener('click', ()=>{ localStorage.clea
 // Swipe to random (left/right) - only trigger on clear horizontal swipes, not scrolls
 let touchStartX = null;
 let touchStartY = null;
+let touchMoved = false;
 document.addEventListener('touchstart', e=>{ 
   touchStartX = e.changedTouches?.[0]?.clientX ?? null;
   touchStartY = e.changedTouches?.[0]?.clientY ?? null;
+  touchMoved = false;
+}, {passive:true});
+document.addEventListener('touchmove', e=>{
+  if (touchStartX == null || touchStartY == null) return;
+  const dx = e.changedTouches?.[0]?.clientX - touchStartX;
+  const dy = e.changedTouches?.[0]?.clientY - touchStartY;
+  // Mark as moved if there's any significant movement
+  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+    touchMoved = true;
+  }
 }, {passive:true});
 document.addEventListener('touchend', e=>{
   if (touchStartX==null || touchStartY==null) return;
+  if (!touchMoved) {
+    touchStartX = null;
+    touchStartY = null;
+    return;
+  }
   const dx = e.changedTouches?.[0]?.clientX - touchStartX;
   const dy = e.changedTouches?.[0]?.clientY - touchStartY;
-  // Only trigger if horizontal movement is significant AND greater than vertical movement (swipe, not scroll)
-  if (Math.abs(dx) > 100 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  // Only trigger if:
+  // 1. Horizontal movement is significant (>= 150px)
+  // 2. Horizontal movement is at least 3x greater than vertical movement
+  // 3. Vertical movement is relatively small (< 80px) to avoid scroll triggers
+  if (absDx >= 150 && absDx >= absDy * 3 && absDy < 80) {
     fetchRandom();
   }
   touchStartX = null;
   touchStartY = null;
+  touchMoved = false;
 }, {passive:true});
 
 // ---- Native mobile sharing (no fallback) ----
