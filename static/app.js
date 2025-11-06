@@ -439,14 +439,23 @@ if (setTextSize) setTextSize.addEventListener('input', ()=> saveSettings({ textS
 if (setDefaultSub) setDefaultSub.addEventListener('change', ()=> saveSettings({ defaultSub: setDefaultSub.value }));
 if (btnClearData) btnClearData.addEventListener('click', ()=>{ localStorage.clear(); location.reload(); });
 
-// Swipe to random (left/right)
+// Swipe to random (left/right) - only trigger on clear horizontal swipes, not scrolls
 let touchStartX = null;
-document.addEventListener('touchstart', e=>{ touchStartX = e.changedTouches?.[0]?.clientX ?? null; }, {passive:true});
+let touchStartY = null;
+document.addEventListener('touchstart', e=>{ 
+  touchStartX = e.changedTouches?.[0]?.clientX ?? null;
+  touchStartY = e.changedTouches?.[0]?.clientY ?? null;
+}, {passive:true});
 document.addEventListener('touchend', e=>{
-  if (touchStartX==null) return;
+  if (touchStartX==null || touchStartY==null) return;
   const dx = e.changedTouches?.[0]?.clientX - touchStartX;
-  if (Math.abs(dx) > 60) fetchRandom();
+  const dy = e.changedTouches?.[0]?.clientY - touchStartY;
+  // Only trigger if horizontal movement is significant AND greater than vertical movement (swipe, not scroll)
+  if (Math.abs(dx) > 100 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    fetchRandom();
+  }
   touchStartX = null;
+  touchStartY = null;
 }, {passive:true});
 
 // ---- Native mobile sharing (no fallback) ----
