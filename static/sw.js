@@ -1,5 +1,5 @@
-const CACHE_NAME = 'random-aita-v4';
-const APP_SHELL = ['/', '/static/styles.css?v=4', '/static/app.js?v=32'];
+const CACHE_NAME = 'random-aita-v5';
+const APP_SHELL = ['/', '/static/styles.css?v=5', '/static/app.js?v=33'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(APP_SHELL)));
