@@ -300,28 +300,7 @@ h2{ font-size:1.25rem; margin:0 0 8px; line-height:1.3; }
     border-radius: var(--radius);
     box-shadow: 0 8px 32px rgba(0,0,0,.2);
     z-index: 1001;
-  }
-  
-  /* Add backdrop for modal panels on desktop */
-  .panel[aria-hidden="false"] {
-    background: rgba(0,0,0,.5);
-  }
-  
-  .panel[aria-hidden="false"]::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0,0,0,.5);
-    z-index: 1000;
-    pointer-events: auto;
-  }
-  
-  .panel[aria-hidden="false"] {
     background: #fff;
-    pointer-events: auto;
   }
 }
 

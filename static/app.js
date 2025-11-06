@@ -631,6 +631,16 @@ if (voteESH) voteESH.addEventListener("click", () => vote("ESH"));
 // favorite - removed note functionality
 // Note button removed, only Save tab remains
 
+// Desktop navigation helper (defined before setActiveTab)
+function setActiveDesktopTab(activeBtn) {
+  if (!activeBtn) return;
+  const buttons = [desktopTabSave, desktopTabFav, desktopTabShare, desktopTabSet];
+  buttons.forEach(btn => {
+    if (btn) btn.classList.remove('active');
+  });
+  if (activeBtn) activeBtn.classList.add('active');
+}
+
 // Tabs behavior
 function setActiveTab(which){
   for (const btn of [tabSave,tabFav,tabShare,tabSet]) if (btn) btn.classList.remove('active');
@@ -640,13 +650,11 @@ function setActiveTab(which){
   if (panelShare) panelShare.setAttribute('aria-hidden', 'true');
   if (panelSet) panelSet.setAttribute('aria-hidden', String(which!==tabSet));
   
-  // Sync desktop nav (if available)
-  if (typeof setActiveDesktopTab === 'function') {
-    if (which === tabSave && desktopTabSave) setActiveDesktopTab(desktopTabSave);
-    else if (which === tabFav && desktopTabFav) setActiveDesktopTab(desktopTabFav);
-    else if (which === tabShare && desktopTabShare) setActiveDesktopTab(desktopTabShare);
-    else if (which === tabSet && desktopTabSet) setActiveDesktopTab(desktopTabSet);
-  }
+  // Sync desktop nav
+  if (which === tabSave && desktopTabSave) setActiveDesktopTab(desktopTabSave);
+  else if (which === tabFav && desktopTabFav) setActiveDesktopTab(desktopTabFav);
+  else if (which === tabShare && desktopTabShare) setActiveDesktopTab(desktopTabShare);
+  else if (which === tabSet && desktopTabSet) setActiveDesktopTab(desktopTabSet);
 }
 if (tabSave) tabSave.addEventListener('click', ()=> {
   if (currentPost) toggleFavorite(currentPost);
