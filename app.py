@@ -256,4 +256,5 @@ init_db()
 threading.Thread(target=warm_start, daemon=True).start()
 
 if __name__ == "__main__":
+    # Production server - Render will use gunicorn via Procfile
     app.run(host="0.0.0.0", port=PORT, debug=False)
