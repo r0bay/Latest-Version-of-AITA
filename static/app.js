@@ -40,8 +40,6 @@ const tabSet  = document.getElementById("tabSet");
 const panelFav = document.getElementById("panelFavorites");
 const panelShare = document.getElementById("panelShare");
 const panelSet = document.getElementById("panelSettings");
-const closeFavorites = document.getElementById("closeFavorites");
-const closeSettings = document.getElementById("closeSettings");
 const favoritesList = document.getElementById("favoritesList");
 const historyList   = document.getElementById("historyList");
 
@@ -665,63 +663,6 @@ function setActiveTab(which){
   }
 }
 
-// Close panel function
-function closePanel() {
-  console.log('closePanel called'); // Debug
-  // Close all panels directly
-  if (panelFav) {
-    panelFav.setAttribute('aria-hidden', 'true');
-    console.log('Closed favorites panel');
-  }
-  if (panelSet) {
-    panelSet.setAttribute('aria-hidden', 'true');
-    console.log('Closed settings panel');
-  }
-  if (panelShare) {
-    panelShare.setAttribute('aria-hidden', 'true');
-  }
-  // Remove active states from all tabs
-  for (const btn of [tabSave,tabFav,tabShare,tabSet]) {
-    if (btn) btn.classList.remove('active');
-  }
-  // Remove active states from desktop nav
-  if (typeof setActiveDesktopTab === 'function') {
-    setActiveDesktopTab(null);
-  }
-}
-
-// Setup close button handlers
-function setupCloseButtons() {
-  // Direct event listeners on close buttons by ID
-  if (closeFavorites) {
-    closeFavorites.addEventListener('click', function(e) {
-      e.stopPropagation();
-      e.preventDefault();
-      console.log('Close favorites clicked');
-      closePanel();
-    });
-  }
-  
-  if (closeSettings) {
-    closeSettings.addEventListener('click', function(e) {
-      e.stopPropagation();
-      e.preventDefault();
-      console.log('Close settings clicked');
-      closePanel();
-    });
-  }
-  
-  // Also use querySelector as backup
-  const closeButtons = document.querySelectorAll('.panel-close');
-  closeButtons.forEach(btn => {
-    btn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      e.preventDefault();
-      console.log('Close button clicked (querySelector)');
-      closePanel();
-    });
-  });
-}
 
 if (tabSave) tabSave.addEventListener('click', ()=> {
   if (currentPost) toggleFavorite(currentPost);
@@ -883,9 +824,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Setup desktop navigation
   setupDesktopNav();
   updateDesktopNav();
-  
-  // Setup close buttons
-  setupCloseButtons();
   
   const urlParams = new URLSearchParams(window.location.search);
 
