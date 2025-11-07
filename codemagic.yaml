@@ -4,10 +4,13 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m1
     # Enable automatic code signing - requires App Store Connect integration in Codemagic UI
+    # Note: The integration must be named 'apple_credentials' or match what's in integrations section
     environment:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: app.randomaita.final
+        # Explicitly reference the integration if needed
+        # codemagic_signing: apple_credentials
       vars:
         APP_ID: app.randomaita.final
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
@@ -134,13 +137,23 @@ workflows:
           
           # Fetch signing files - this creates profiles if they don't exist
           echo "Attempting to fetch/create provisioning profiles and certificates..."
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Distribution type: App Store"
+          
+          # Try to fetch/create signing files with verbose output
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
-            --create || {
-            echo "⚠ fetch-signing-files failed or returned error"
-            echo "This might be OK if profiles are created via ios_signing configuration"
-            echo "Will rely on automatic provisioning via -allowProvisioningUpdates during build"
+            --create \
+            --verbose 2>&1 || {
+            echo "⚠ fetch-signing-files returned an error"
+            echo "This might be OK - Codemagic ios_signing should handle profile creation"
+            echo "Continuing with build - Xcode will create profiles via -allowProvisioningUpdates"
           }
+          
+          # Verify if profiles were created/fetched
+          echo ""
+          echo "Checking if profiles were created..."
+          app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1 || echo "Could not list profiles"
           
           # Apply profiles to Xcode project
           echo "Applying profiles to Xcode project..."
