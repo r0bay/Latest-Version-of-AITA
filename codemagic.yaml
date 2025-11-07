@@ -126,25 +126,40 @@ workflows:
           keychain initialize
           
           # Use Codemagic's automatic code signing
-          # This will automatically fetch/create certificates and provisioning profiles
+          # Fetch/create signing files (certificates and provisioning profiles)
           echo "Setting up automatic code signing with Codemagic..."
-          echo "Codemagic will use App Store Connect API to create/manage certificates"
+          echo "Fetching/creating signing files for bundle ID: $BUNDLE_ID"
           
-          # Let Codemagic handle code signing automatically
-          # The xcode-project use-profiles command should work with the integration
           cd ios/App
           
-          # Try to use Codemagic's automatic profiles
-          # If this fails, we'll rely on -allowProvisioningUpdates during build
+          # Fetch signing files - this creates profiles if they don't exist
+          echo "Attempting to fetch/create provisioning profiles and certificates..."
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create || {
+            echo "⚠ fetch-signing-files failed or returned error"
+            echo "This might be OK if profiles are created via ios_signing configuration"
+            echo "Will rely on automatic provisioning via -allowProvisioningUpdates during build"
+          }
+          
+          # Apply profiles to Xcode project
+          echo "Applying profiles to Xcode project..."
           xcode-project use-profiles || {
-            echo "⚠ xcode-project use-profiles failed, will rely on automatic provisioning during build"
+            echo "⚠ xcode-project use-profiles failed or profiles not available yet"
+            echo "Will rely on automatic provisioning via -allowProvisioningUpdates during build"
+            echo "This should create the profile automatically if app exists in App Store Connect"
           }
           
           cd ../..
           
-          # Check if we have any certificates (may not be set up yet, that's OK)
-          echo "Checking for certificates (may be empty if not set up yet)..."
-          security find-identity -v -p codesigning 2>&1 | head -5 || echo "No certificates found yet (will be created automatically)"
+          # Check if we have any certificates
+          echo "Checking for certificates..."
+          CERT_OUTPUT=$(security find-identity -v -p codesigning 2>&1)
+          if echo "$CERT_OUTPUT" | grep -q "iPhone Distribution"; then
+            echo "✓ Distribution certificates found"
+          else
+            echo "⚠ No distribution certificates found yet (will be created automatically)"
+          fi
       - name: Clean build folder
         script: |
           cd ios/App
