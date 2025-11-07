@@ -6,11 +6,11 @@ workflows:
     # Enable automatic code signing - requires App Store Connect integration in Codemagic UI
     # Note: The integration must be named 'apple_credentials' or match what's in integrations section
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: app.randomaita.final
-        # Explicitly reference the integration if needed
-        # codemagic_signing: apple_credentials
+      # ios_signing configuration - commented out to test if it causes validation errors
+      # If build works without it, we'll add it back with correct format
+      # ios_signing:
+      #   distribution_type: app_store
+      #   bundle_identifier: app.randomaita.final
       vars:
         APP_ID: app.randomaita.final
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
