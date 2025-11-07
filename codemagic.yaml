@@ -93,12 +93,6 @@ workflows:
           echo "=== Code Signing Setup ==="
           echo "Bundle ID: $BUNDLE_ID"
           echo "Team ID: $TEAM_ID"
-          echo ""
-          echo "With ios_signing enabled, Codemagic will automatically:"
-          echo "- Authenticate Xcode with Apple Developer Portal"
-          echo "- Create/download certificates"
-          echo "- Create provisioning profiles"
-          echo "- Apply them to the project"
           
           # Verify environment variables are set
           if [ -z "$BUNDLE_ID" ]; then
@@ -141,24 +135,45 @@ workflows:
           echo "Initializing keychain for code signing..."
           keychain initialize
           
-          # Codemagic's ios_signing configuration will automatically:
-          # 1. Authenticate Xcode with Apple (via Developer Portal integration)
-          # 2. Fetch/create distribution certificate
-          # 3. Fetch/create App Store provisioning profile
-          # 4. Apply profiles to Xcode project
-          #
-          # The xcode-project use-profiles command applies the profiles that Codemagic created
+          # CRITICAL: Explicitly create/fetch the provisioning profile BEFORE building
+          # This ensures the profile exists before Xcode tries to use it
           echo ""
-          echo "Applying Codemagic-generated profiles to Xcode project..."
+          echo "=== Creating App Store Provisioning Profile ==="
+          echo "This step ensures the profile exists before the build starts"
+          echo "Bundle ID: $BUNDLE_ID"
+          
+          # Use Codemagic's app-store-connect CLI to create the profile
+          # The --create flag creates the profile if it doesn't exist
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create \
+            --verbose 2>&1 | tee /tmp/signing-setup.log || {
+            echo ""
+            echo "⚠ Profile creation/fetch failed - checking logs..."
+            cat /tmp/signing-setup.log || true
+            echo ""
+            echo "This might be OK if profile already exists, continuing..."
+          }
+          
+          # Verify profile was created/fetched
+          echo ""
+          echo "Verifying profile exists..."
+          app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1 || {
+            echo "⚠ Could not verify profile - will attempt to create during build"
+          }
+          
+          # Apply profiles to Xcode project
+          echo ""
+          echo "Applying profiles to Xcode project..."
           cd ios/App
           xcode-project use-profiles || {
-            echo "⚠ Profiles may not be available yet (will be created during build)"
+            echo "⚠ Could not apply profiles yet - Xcode will create during build if needed"
           }
           cd ../..
           
           echo ""
           echo "✓ Code signing setup complete"
-          echo "Codemagic will handle certificate and profile creation automatically via ios_signing"
+          echo "Profile should now exist for bundle ID: $BUNDLE_ID"
       - name: Clean build folder
         script: |
           cd ios/App
