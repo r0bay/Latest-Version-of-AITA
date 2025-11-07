@@ -64,19 +64,29 @@ workflows:
           cd ios/App
           pod install
           cd ../..
-      - name: Verify App Store Connect integration
+      - name: Diagnose App Store Connect signing
         script: |
-          echo "=== Verifying App Store Connect API Integration ==="
-          echo "Checking if app-store-connect CLI is available..."
+          echo "=== Diagnosing App Store Connect Signing ==="
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Team ID: $TEAM_ID"
+          
+          # Check if app-store-connect CLI is available
           which app-store-connect || echo "⚠ app-store-connect command not found"
           
-          echo "Checking environment variables..."
-          echo "BUNDLE_ID: $BUNDLE_ID"
-          echo "TEAM_ID: $TEAM_ID"
+          # Test API connection and show current user/team
+          echo "Checking API connection..."
+          app-store-connect whoami || echo "⚠ Could not authenticate with App Store Connect API"
           
-          # Try to test the connection
-          echo "Testing App Store Connect API connection..."
-          app-store-connect fetch-signing-files --help || echo "⚠ Could not get help for app-store-connect"
+          # List existing App Store profiles for this bundle ID
+          echo ""
+          echo "Listing existing App Store profiles for $BUNDLE_ID..."
+          app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" || {
+            echo "⚠ No profiles found or error listing profiles"
+            echo "This might be expected if profiles don't exist yet"
+          }
+          
+          echo ""
+          echo "If no profiles are listed above, Codemagic will create them automatically during build"
       - name: Set up code signing
         script: |
           echo "=== Code Signing Setup ==="
