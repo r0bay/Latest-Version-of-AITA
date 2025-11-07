@@ -4,13 +4,11 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m1
     # Enable automatic code signing - requires App Store Connect integration in Codemagic UI
-    # Note: The integration must be named 'apple_credentials' or match what's in integrations section
+    # This will authenticate Xcode with Apple and create provisioning profiles automatically
     environment:
-      # ios_signing configuration - commented out to test if it causes validation errors
-      # If build works without it, we'll add it back with correct format
-      # ios_signing:
-      #   distribution_type: app_store
-      #   bundle_identifier: app.randomaita.final
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: app.randomaita.final
       vars:
         APP_ID: app.randomaita.final
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
@@ -95,6 +93,12 @@ workflows:
           echo "=== Code Signing Setup ==="
           echo "Bundle ID: $BUNDLE_ID"
           echo "Team ID: $TEAM_ID"
+          echo ""
+          echo "With ios_signing enabled, Codemagic will automatically:"
+          echo "- Authenticate Xcode with Apple Developer Portal"
+          echo "- Create/download certificates"
+          echo "- Create provisioning profiles"
+          echo "- Apply them to the project"
           
           # Verify environment variables are set
           if [ -z "$BUNDLE_ID" ]; then
@@ -109,6 +113,7 @@ workflows:
           cd ios/App
           
           # Ensure DEVELOPMENT_TEAM is set in project file
+          echo ""
           echo "Setting DEVELOPMENT_TEAM in project file..."
           sed -i.bak "s/DEVELOPMENT_TEAM = \"[^\"]*\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj || true
           sed -i.bak "s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj || true
@@ -122,57 +127,38 @@ workflows:
           else
             echo "⚠ DEVELOPMENT_TEAM may not be set in all configurations"
           fi
+          
+          if grep -q "CODE_SIGN_STYLE = Automatic" App.xcodeproj/project.pbxproj; then
+            echo "✓ CODE_SIGN_STYLE set to Automatic"
+          else
+            echo "⚠ CODE_SIGN_STYLE may not be set to Automatic"
+          fi
+          
           cd ../..
           
-          # Initialize keychain - Codemagic needs this for code signing
+          # Initialize keychain - REQUIRED for Codemagic code signing
+          echo ""
           echo "Initializing keychain for code signing..."
           keychain initialize
           
-          # Use Codemagic's automatic code signing
-          # Fetch/create signing files (certificates and provisioning profiles)
-          echo "Setting up automatic code signing with Codemagic..."
-          echo "Fetching/creating signing files for bundle ID: $BUNDLE_ID"
-          
-          cd ios/App
-          
-          # Fetch signing files - this creates profiles if they don't exist
-          echo "Attempting to fetch/create provisioning profiles and certificates..."
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "Distribution type: App Store"
-          
-          # Try to fetch/create signing files with verbose output
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create \
-            --verbose 2>&1 || {
-            echo "⚠ fetch-signing-files returned an error"
-            echo "This might be OK - Codemagic ios_signing should handle profile creation"
-            echo "Continuing with build - Xcode will create profiles via -allowProvisioningUpdates"
-          }
-          
-          # Verify if profiles were created/fetched
+          # Codemagic's ios_signing configuration will automatically:
+          # 1. Authenticate Xcode with Apple (via Developer Portal integration)
+          # 2. Fetch/create distribution certificate
+          # 3. Fetch/create App Store provisioning profile
+          # 4. Apply profiles to Xcode project
+          #
+          # The xcode-project use-profiles command applies the profiles that Codemagic created
           echo ""
-          echo "Checking if profiles were created..."
-          app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1 || echo "Could not list profiles"
-          
-          # Apply profiles to Xcode project
-          echo "Applying profiles to Xcode project..."
+          echo "Applying Codemagic-generated profiles to Xcode project..."
+          cd ios/App
           xcode-project use-profiles || {
-            echo "⚠ xcode-project use-profiles failed or profiles not available yet"
-            echo "Will rely on automatic provisioning via -allowProvisioningUpdates during build"
-            echo "This should create the profile automatically if app exists in App Store Connect"
+            echo "⚠ Profiles may not be available yet (will be created during build)"
           }
-          
           cd ../..
           
-          # Check if we have any certificates
-          echo "Checking for certificates..."
-          CERT_OUTPUT=$(security find-identity -v -p codesigning 2>&1)
-          if echo "$CERT_OUTPUT" | grep -q "iPhone Distribution"; then
-            echo "✓ Distribution certificates found"
-          else
-            echo "⚠ No distribution certificates found yet (will be created automatically)"
-          fi
+          echo ""
+          echo "✓ Code signing setup complete"
+          echo "Codemagic will handle certificate and profile creation automatically via ios_signing"
       - name: Clean build folder
         script: |
           cd ios/App
