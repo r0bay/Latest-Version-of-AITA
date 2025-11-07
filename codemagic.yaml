@@ -210,7 +210,13 @@ workflows:
           fi
           
           # Build with automatic provisioning
-          # Note: Using -UseModernBuildSystem=1 for better dependency resolution
+          # The -allowProvisioningUpdates flag allows Xcode to create profiles automatically
+          # Codemagic's ios_signing should also help create profiles
+          echo ""
+          echo "Starting archive build..."
+          echo "This will automatically create provisioning profiles if they don't exist"
+          echo "Using Team ID: $TEAM_ID, Bundle ID: $BUNDLE_ID"
+          
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
@@ -221,19 +227,29 @@ workflows:
             -UseModernBuildSystem=1 \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             SWIFT_VERSION=5.0 \
             SWIFT_OPTIMIZATION_LEVEL="-O" \
             CLANG_ENABLE_MODULES=YES \
             SWIFT_ENABLE_BATCH_MODE=YES \
             2>&1 | tee /tmp/xcodebuild.log || {
-            echo "Build failed. Last 150 lines of log:"
-            tail -150 /tmp/xcodebuild.log
             echo ""
-            echo "Searching for Swift compilation errors:"
+            echo "=== BUILD FAILED ==="
+            echo "Last 200 lines of build log:"
+            tail -200 /tmp/xcodebuild.log
+            echo ""
+            echo "=== SEARCHING FOR KEY ERRORS ==="
+            echo "Provisioning profile errors:"
+            grep -i "profile\|provisioning" /tmp/xcodebuild.log | tail -20
+            echo ""
+            echo "Code signing errors:"
+            grep -i "sign\|certificate" /tmp/xcodebuild.log | tail -20
+            echo ""
+            echo "Bundle ID errors:"
+            grep -i "bundle\|identifier" /tmp/xcodebuild.log | tail -20
+            echo ""
+            echo "General errors:"
             grep -i "error\|failed\|cannot" /tmp/xcodebuild.log | tail -30
-            echo ""
-            echo "Checking for module import errors:"
-            grep -i "google\|admob\|module" /tmp/xcodebuild.log | tail -20
             exit 1
           }
           
