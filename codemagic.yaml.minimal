@@ -1,0 +1,45 @@
+workflows:
+  ios-workflow:
+    name: iOS Workflow
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      vars:
+        APP_ID: app.randomaita.final
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        BUNDLE_ID: app.randomaita.final
+        TEAM_ID: US86BZ3GH5
+    scripts:
+      - name: Install Node.js dependencies
+        script: |
+          npm install
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios/App
+          pod install
+          cd ../..
+      - name: Sync Capacitor files
+        script: |
+          npx cap sync ios
+          cd ios/App
+          pod install
+          cd ../..
+      - name: Build ipa for distribution
+        script: |
+          cd ios/App
+          mkdir -p "$CM_BUILD_DIR"
+          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic
+    artifacts:
+      - build/**/*.xcarchive
+      - build/**/*.ipa
+
