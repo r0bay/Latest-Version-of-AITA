@@ -75,19 +75,62 @@ workflows:
           which app-store-connect || echo "⚠ app-store-connect command not found"
           
           # Test API connection and show current user/team
-          echo "Checking API connection..."
-          app-store-connect whoami || echo "⚠ Could not authenticate with App Store Connect API"
+          echo ""
+          echo "Step 1: Testing API connection..."
+          app-store-connect whoami || {
+            echo "❌ ERROR: Could not authenticate with App Store Connect API"
+            echo "Check that Developer Portal integration is configured in Codemagic"
+            exit 1
+          }
+          echo "✓ API connection successful"
+          
+          # Check if app exists in App Store Connect (CRITICAL for App Store profiles)
+          echo ""
+          echo "Step 2: Checking if app exists in App Store Connect..."
+          echo "This is REQUIRED for App Store provisioning profiles!"
+          APP_LIST=$(app-store-connect list-apps 2>&1)
+          if echo "$APP_LIST" | grep -q "$BUNDLE_ID"; then
+            echo "✓ App found in App Store Connect!"
+            echo "$APP_LIST" | grep "$BUNDLE_ID"
+          else
+            echo ""
+            echo "❌ CRITICAL ERROR: App with bundle ID '$BUNDLE_ID' NOT FOUND in App Store Connect!"
+            echo ""
+            echo "This is why provisioning profiles can't be created."
+            echo ""
+            echo "=== YOU MUST CREATE THE APP FIRST ==="
+            echo ""
+            echo "Steps to fix:"
+            echo "1. Go to https://appstoreconnect.apple.com"
+            echo "2. Click 'My Apps' in the top navigation"
+            echo "3. Click '+' button → 'New App'"
+            echo "4. Fill in:"
+            echo "   - Platform: iOS"
+            echo "   - Name: AITA Randomizer (or any name)"
+            echo "   - Bundle ID: Select '$BUNDLE_ID' from dropdown"
+            echo "   - SKU: random-aita-final-2025 (any unique ID)"
+            echo "5. Click 'Create'"
+            echo "6. Wait 5-10 minutes for Apple to process"
+            echo "7. Run this build again"
+            echo ""
+            echo "Without an app in App Store Connect, Codemagic CANNOT create App Store provisioning profiles!"
+            echo ""
+            echo "Continuing with diagnostics..."
+          fi
           
           # List existing App Store profiles for this bundle ID
           echo ""
-          echo "Listing existing App Store profiles for $BUNDLE_ID..."
-          app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" || {
-            echo "⚠ No profiles found or error listing profiles"
-            echo "This might be expected if profiles don't exist yet"
-          }
-          
-          echo ""
-          echo "If no profiles are listed above, Codemagic will create them automatically during build"
+          echo "Step 3: Checking existing App Store profiles..."
+          PROFILE_OUTPUT=$(app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1)
+          if echo "$PROFILE_OUTPUT" | grep -q "$BUNDLE_ID"; then
+            echo "✓ Found existing profiles:"
+            echo "$PROFILE_OUTPUT"
+          else
+            echo "⚠ No profiles found for bundle ID $BUNDLE_ID"
+            echo "Output: $PROFILE_OUTPUT"
+            echo ""
+            echo "This is expected if the app doesn't exist in App Store Connect."
+          fi
       - name: Set up code signing
         script: |
           echo "=== Code Signing Setup ==="
@@ -141,26 +184,66 @@ workflows:
           echo "=== Creating App Store Provisioning Profile ==="
           echo "This step ensures the profile exists before the build starts"
           echo "Bundle ID: $BUNDLE_ID"
+          echo ""
+          
+          # First, verify the app exists (required for App Store profiles)
+          echo "Step 1: Verifying app exists in App Store Connect..."
+          APP_CHECK=$(app-store-connect list-apps --filter bundleId="$BUNDLE_ID" 2>&1)
+          if echo "$APP_CHECK" | grep -q "$BUNDLE_ID" || echo "$APP_CHECK" | grep -q "not found" || [ -z "$APP_CHECK" ]; then
+            echo "⚠ App existence check inconclusive - continuing with profile creation"
+          else
+            echo "App check output: $APP_CHECK"
+          fi
           
           # Use Codemagic's app-store-connect CLI to create the profile
           # The --create flag creates the profile if it doesn't exist
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+          # IMPORTANT: This requires the app to exist in App Store Connect
+          echo ""
+          echo "Step 2: Creating/fetching provisioning profile..."
+          echo "Note: This will fail if app doesn't exist in App Store Connect"
+          
+          PROFILE_RESULT=$(app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
-            --verbose 2>&1 | tee /tmp/signing-setup.log || {
+            --verbose 2>&1 | tee /tmp/signing-setup.log; echo "EXIT_CODE:${PIPESTATUS[0]}")
+          
+          EXIT_CODE=$(echo "$PROFILE_RESULT" | grep "EXIT_CODE:" | cut -d: -f2)
+          
+          if [ "$EXIT_CODE" != "0" ]; then
             echo ""
-            echo "⚠ Profile creation/fetch failed - checking logs..."
-            cat /tmp/signing-setup.log || true
+            echo "❌ Profile creation/fetch failed!"
             echo ""
-            echo "This might be OK if profile already exists, continuing..."
-          }
+            echo "Build logs:"
+            cat /tmp/signing-setup.log || echo "No log file found"
+            echo ""
+            echo "Common causes:"
+            echo "1. App doesn't exist in App Store Connect (MOST COMMON)"
+            echo "   → Solution: Create app at https://appstoreconnect.apple.com"
+            echo "2. Bundle ID not properly registered"
+            echo "   → Solution: Verify bundle ID exists in Apple Developer Portal"
+            echo "3. API key doesn't have permissions"
+            echo "   → Solution: Check API key has 'Access to Certificates, Identifiers & Profiles'"
+            echo ""
+            echo "Continuing build to see if Xcode can create profile automatically..."
+          else
+            echo "✓ Profile creation/fetch completed successfully"
+          fi
           
           # Verify profile was created/fetched
           echo ""
-          echo "Verifying profile exists..."
-          app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1 || {
-            echo "⚠ Could not verify profile - will attempt to create during build"
-          }
+          echo "Step 3: Verifying profile exists..."
+          PROFILE_VERIFY=$(app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1)
+          if echo "$PROFILE_VERIFY" | grep -q "$BUNDLE_ID"; then
+            echo "✓ Profile verified:"
+            echo "$PROFILE_VERIFY"
+          else
+            echo "⚠ Profile verification failed - output:"
+            echo "$PROFILE_VERIFY"
+            echo ""
+            echo "This might cause the build to fail. Make sure:"
+            echo "1. App exists in App Store Connect with bundle ID: $BUNDLE_ID"
+            echo "2. Waited 5-10 minutes after creating the app"
+          fi
           
           # Apply profiles to Xcode project
           echo ""
