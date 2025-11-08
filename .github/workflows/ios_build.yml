@@ -34,11 +34,8 @@ jobs:
           npm install
           npx cap sync ios
 
-      - name: Install Bundler and gems
-        run: |
-          gem install bundler
-          bundle install --path vendor/bundle
-        working-directory: ios/App
+       - name: Install Fastlane
+        run: gem install fastlane
 
       - name: Install certificate into keychain
         run: |
