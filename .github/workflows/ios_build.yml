@@ -58,18 +58,15 @@ jobs:
       - name: Set Development Team in Xcode project
         run: |
           cd ios/App
-          # Set the development team ID in the project file
+          # Set the development team ID
           sed -i '' 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = "US86BZ3GH5";/g' App.xcodeproj/project.pbxproj
           sed -i '' 's/DEVELOPMENT_TEAM = ""/DEVELOPMENT_TEAM = "US86BZ3GH5"/g' App.xcodeproj/project.pbxproj
-          # Set code signing identity to Distribution
-          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer"/CODE_SIGN_IDENTITY = "Apple Distribution"/g' App.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_IDENTITY = ""/CODE_SIGN_IDENTITY = "Apple Distribution"/g' App.xcodeproj/project.pbxproj
       
       - name: Build and sign with Xcode
         run: |
           cd ios/App
           
-          # Build archive
+          # Build archive - let Xcode handle signing automatically
           xcodebuild -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
@@ -79,13 +76,9 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
-            DEVELOPMENT_TEAM=US86BZ3GH5 \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
             clean archive
           
-          # Export for App Store
+          # Export for App Store - this is where distribution signing happens
           xcodebuild -exportArchive \
             -archivePath $PWD/build/App.xcarchive \
             -exportPath $PWD/build \
@@ -93,9 +86,8 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
-            DEVELOPMENT_TEAM=US86BZ3GH5 \
-            CODE_SIGN_STYLE=Automatic
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+      
 
       - name: Upload to TestFlight
         run: |
