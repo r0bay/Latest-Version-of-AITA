@@ -87,8 +87,10 @@ jobs:
             -scheme App -configuration Release | \
             egrep 'CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE|PRODUCT_BUNDLE_IDENTIFIER'
 
-      - name: Pre-archive tripwires (fail fast if stale settings)
+      - name: Validate Release signing (tripwire)
         run: |
+          set -euo pipefail
+
           # No stale bundle ID anywhere in iOS project
           if grep -R "app.randomaita.mobilefinal" -n ios/App ; then
             echo "Stale bundle ID found: app.randomaita.mobilefinal"; exit 1;
@@ -100,20 +102,32 @@ jobs:
             echo "Info.plist CFBundleIdentifier should be \$(PRODUCT_BUNDLE_IDENTIFIER) but is '$PLIST_VAL'"; exit 1;
           fi
 
-          # Show & check Release settings actually used by the scheme
-          xcodebuild -showBuildSettings \
-            -workspace ios/App/App.xcworkspace \
-            -scheme App -configuration Release | tee /tmp/buildsettings.txt
+          cd ios/App
+          SETTINGS=$(xcodebuild -showBuildSettings -workspace App.xcworkspace -scheme App -configuration Release)
+          STYLE=$(echo "$SETTINGS" | awk -F' = ' '/^[[:space:]]*CODE_SIGN_STYLE[[:space:]]*=/{print $2; exit}')
+          IDENTITY=$(echo "$SETTINGS" | awk -F' = ' '/^[[:space:]]*CODE_SIGN_IDENTITY[[:space:]]*=/{print $2; exit}')
+          PROFILE=$(echo "$SETTINGS" | awk -F' = ' '/^[[:space:]]*PROVISIONING_PROFILE(_SPECIFIER)?[[:space:]]*=/{print $2}')
 
-          # Must not be pinned to Distribution identity (automatic signing should choose as needed)
-          if grep -q 'CODE_SIGN_IDENTITY = Apple Distribution' /tmp/buildsettings.txt; then
-            echo "Release build settings still hard-code Apple Distribution"; exit 1;
+          echo "CODE_SIGN_STYLE=$STYLE"
+          echo "CODE_SIGN_IDENTITY=$IDENTITY"
+          echo "PROVISIONING_PROFILE(S)=$PROFILE"
+
+          if [[ "$STYLE" != "Automatic" ]]; then
+            echo "::error::Release is not using Automatic signing (CODE_SIGN_STYLE=$STYLE)"
+            exit 1
           fi
 
-          # Must not pin provisioning profiles (let Automatic + API key choose)
-          if egrep -q 'PROVISIONING_PROFILE(_SPECIFIER)? = .+' /tmp/buildsettings.txt; then
-            echo "Provisioning profile is pinned in Release"; exit 1;
+          if [[ -n "${PROFILE:-}" && "$PROFILE" != "(null)" ]]; then
+            echo "::error::Release has a provisioning profile pinned: $PROFILE"
+            exit 1
           fi
+
+          if [[ "$IDENTITY" == *"Apple Distribution"* ]]; then
+            echo "::error::Release has Apple Distribution pinned in build settings. Remove it so Xcode can choose automatically."
+            exit 1
+          fi
+
+          echo "✅ Tripwire passed: Automatic signing, no pinned profiles, no Distribution pinned."
 
       - name: Build and sign with Xcode (Archive)
         run: |
