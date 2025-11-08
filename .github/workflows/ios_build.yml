@@ -55,6 +55,13 @@ jobs:
           cd ios/App
           pod install
       
+      - name: Set Development Team in Xcode project
+        run: |
+          cd ios/App
+          # Set the development team ID in the project file
+          sed -i '' 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = "US86BZ3GH5";/g' App.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = ""/DEVELOPMENT_TEAM = "US86BZ3GH5"/g' App.xcodeproj/project.pbxproj
+      
       - name: Build and sign with Xcode
         run: |
           cd ios/App
@@ -69,6 +76,7 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
+            DEVELOPMENT_TEAM=US86BZ3GH5 \
             clean archive
           
           # Export for App Store
@@ -79,7 +87,8 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
+            DEVELOPMENT_TEAM=US86BZ3GH5
       
 
       - name: Upload to TestFlight
