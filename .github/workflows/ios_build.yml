@@ -97,20 +97,24 @@ jobs:
           cd ios/App
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
 
-          xcodebuild \
-            -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -archivePath "$PWD/build/App.xcarchive" \
-            -destination "generic/platform=iOS" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
-            DEVELOPMENT_TEAM=US86BZ3GH5 \
-            PRODUCT_BUNDLE_IDENTIFIER=app.randomaita.final \
-            CODE_SIGN_STYLE=Automatic \
+          XCBUILD_ARGS=(
+            -workspace App.xcworkspace
+            -scheme App
+            -configuration Release
+            -archivePath "$PWD/build/App.xcarchive"
+            -destination "generic/platform=iOS"
+            -allowProvisioningUpdates
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }}
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+            DEVELOPMENT_TEAM=US86BZ3GH5
+            PRODUCT_BUNDLE_IDENTIFIER=app.randomaita.final
+            CODE_SIGN_STYLE=Automatic
             clean archive
+          )
+
+          echo "xcodebuild ${XCBUILD_ARGS[*]}"
+          xcodebuild "${XCBUILD_ARGS[@]}"
 
           # Prove archive used Distribution + the right profile
           codesign -dvvvv build/App.xcarchive/Products/Applications/App.app 2>&1 | egrep 'Authority|TeamIdentifier'
