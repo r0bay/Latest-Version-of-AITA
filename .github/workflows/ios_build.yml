@@ -64,102 +64,62 @@ jobs:
           cd ios/App
           pod install --repo-update
 
-      - name: Normalize Xcode signing (App target)
-        run: |
-          FILE=ios/App/App.xcodeproj/project.pbxproj
-
-          # Ensure automatic signing
-          sed -i '' 's/CODE_SIGN_STYLE = Manual/CODE_SIGN_STYLE = Automatic/g' "$FILE"
-
-          # Reset any distribution identities to development
-          sed -i '' 's/CODE_SIGN_IDENTITY = "Apple Distribution"/CODE_SIGN_IDENTITY = "Apple Development"/g' "$FILE"
-          sed -i '' 's/CODE_SIGN_IDENTITY = Apple Distribution/CODE_SIGN_IDENTITY = Apple Development/g' "$FILE"
-          sed -i '' 's/CODE_SIGN_IDENTITY\[sdk=iphoneos\*\] = "Apple Distribution"/CODE_SIGN_IDENTITY[sdk=iphoneos*] = "Apple Development"/g' "$FILE"
-          sed -i '' 's/CODE_SIGN_IDENTITY\[sdk=iphoneos\*\] = Apple Distribution/CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Development/g' "$FILE"
-
-          # Unpin provisioning profiles if any
-          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' "$FILE"
-          sed -i '' 's/PROVISIONING_PROFILE = [^;]*;/PROVISIONING_PROFILE = "";/g' "$FILE"
-
-          # Show resulting Release signing settings
-          xcodebuild -showBuildSettings \
-            -workspace ios/App/App.xcworkspace \
-            -scheme App -configuration Release | \
-            egrep 'CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE|PRODUCT_BUNDLE_IDENTIFIER'
-
-      - name: Validate Release signing (tripwire)
+      - name: Pin App target Release to Distribution (project only)
         run: |
           set -euo pipefail
-
-          # No stale bundle ID anywhere in iOS project
-          if grep -R "app.randomaita.mobilefinal" -n ios/App ; then
-            echo "Stale bundle ID found: app.randomaita.mobilefinal"; exit 1;
-          fi
-
-          # Info.plist should use PRODUCT_BUNDLE_IDENTIFIER variable (not hardcoded)
-          PLIST_VAL=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/App/App/Info.plist)
-          if [ "$PLIST_VAL" != '$(PRODUCT_BUNDLE_IDENTIFIER)' ]; then
-            echo "Info.plist CFBundleIdentifier should be \$(PRODUCT_BUNDLE_IDENTIFIER) but is '$PLIST_VAL'"; exit 1;
-          fi
-
           cd ios/App
-          SETTINGS=$(xcodebuild -showBuildSettings -workspace App.xcworkspace -scheme App -configuration Release)
-          STYLE=$(echo "$SETTINGS" | awk -F' = ' '/^[[:space:]]*CODE_SIGN_STYLE[[:space:]]*=/{print $2; exit}')
-          IDENTITY=$(echo "$SETTINGS" | awk -F' = ' '/^[[:space:]]*CODE_SIGN_IDENTITY[[:space:]]*=/{print $2; exit}')
-          PROFILE=$(echo "$SETTINGS" | awk -F' = ' '/^[[:space:]]*PROVISIONING_PROFILE(_SPECIFIER)?[[:space:]]*=/{print $2}')
 
-          echo "CODE_SIGN_STYLE=$STYLE"
-          echo "CODE_SIGN_IDENTITY=$IDENTITY"
-          echo "PROVISIONING_PROFILE(S)=$PROFILE"
-
-          if [[ "$STYLE" != "Automatic" ]]; then
-            echo "::error::Release is not using Automatic signing (CODE_SIGN_STYLE=$STYLE)"
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_PATH="$PROFILE_DIR/RandomAITAFinal_AppStore.mobileprovision"
+          if [ ! -f "$PROFILE_PATH" ]; then
+            echo "Provisioning profile not found at $PROFILE_PATH"
             exit 1
           fi
 
-          if [[ -n "${PROFILE:-}" && "$PROFILE" != "(null)" ]]; then
-            echo "::error::Release has a provisioning profile pinned: $PROFILE"
-            exit 1
-          fi
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$(/usr/bin/security cms -D -i "$PROFILE_PATH")")
+          echo "Using provisioning profile: $PROFILE_NAME"
 
-          if [[ "$IDENTITY" == *"Apple Distribution"* ]]; then
-            echo "::error::Release has Apple Distribution pinned in build settings. Remove it so Xcode can choose automatically."
-            exit 1
-          fi
+          PBX=App.xcodeproj/project.pbxproj
 
-          echo "✅ Tripwire passed: Automatic signing, no pinned profiles, no Distribution pinned."
+          /usr/bin/sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' "$PBX"
+          /usr/bin/sed -i '' 's/PROVISIONING_PROFILE = [^;]*;/PROVISIONING_PROFILE = "";/g' "$PBX"
 
-      - name: Build and sign with Xcode (Archive)
+          /usr/bin/sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "$PBX"
+          /usr/bin/sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer"/CODE_SIGN_IDENTITY = "Apple Distribution"/g' "$PBX"
+          /usr/bin/sed -i '' 's/CODE_SIGN_IDENTITY = iPhone Developer/CODE_SIGN_IDENTITY = Apple Distribution/g' "$PBX"
+          /usr/bin/sed -i '' 's/CODE_SIGN_IDENTITY\[sdk=iphoneos\*\] = "iPhone Developer"/CODE_SIGN_IDENTITY[sdk=iphoneos*] = "Apple Distribution"/g' "$PBX"
+          /usr/bin/sed -i '' 's/CODE_SIGN_IDENTITY\[sdk=iphoneos\*\] = iPhone Developer/CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Distribution/g' "$PBX"
+
+          /usr/bin/sed -i '' "s/PROVISIONING_PROFILE_SPECIFIER = \"\"/PROVISIONING_PROFILE_SPECIFIER = \"$PROFILE_NAME\"/g" "$PBX"
+
+          echo "Sanity check of Release signing:"
+          xcodebuild -showBuildSettings -workspace App.xcworkspace -scheme App -configuration Release | egrep 'CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE'
+
+      - name: Build archive (App target uses Distribution)
         run: |
+          set -euo pipefail
           cd ios/App
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
 
-          XCBUILD_ARGS=(
-            -workspace App.xcworkspace
-            -scheme App
-            -configuration Release
-            -archivePath "$PWD/build/App.xcarchive"
-            -destination "generic/platform=iOS"
-            -allowProvisioningUpdates
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }}
-            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
-            DEVELOPMENT_TEAM=US86BZ3GH5
-            PRODUCT_BUNDLE_IDENTIFIER=app.randomaita.final
-            CODE_SIGN_STYLE=Automatic
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath "$PWD/build/App.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
+            PRODUCT_BUNDLE_IDENTIFIER=app.randomaita.final \
+            DEVELOPMENT_TEAM=US86BZ3GH5 \
             clean archive
-          )
 
-          echo "xcodebuild ${XCBUILD_ARGS[*]}"
-          xcodebuild "${XCBUILD_ARGS[@]}"
-
-          # Prove archive used Distribution + the right profile
           codesign -dvvvv build/App.xcarchive/Products/Applications/App.app 2>&1 | egrep 'Authority|TeamIdentifier'
-          security cms -D -i build/App.xcarchive/Products/Applications/App.app/embedded.mobileprovision \
-            | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin
+          security cms -D -i build/App.xcarchive/Products/Applications/App.app/embedded.mobileprovision | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin
 
-      - name: Export IPA for App Store
+      - name: Export for App Store
         run: |
+          set -euo pipefail
           cd ios/App
           xcodebuild -exportArchive \
             -archivePath "$PWD/build/App.xcarchive" \
