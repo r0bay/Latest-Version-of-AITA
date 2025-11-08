@@ -8,85 +8,130 @@ on:
 jobs:
   build:
     runs-on: macos-14
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      
-      - name: Install dependencies and sync Capacitor
+
+      - name: Install dependencies & Capacitor sync
         run: |
-          npm install
+          npm ci
+          # Guard: capacitor appId must be the final one
+          if [ "$(jq -r '.appId' capacitor.config.json)" != "app.randomaita.final" ]; then
+            echo "capacitor.config.json.appId is not app.randomaita.final"; exit 1;
+          fi
           npx cap sync ios
-      
+
       - name: Setup App Store Connect API Key
         run: |
           mkdir -p ~/private_keys
           echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 -D > ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
-      
-      - name: Create export options first
+          test -s ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 || { echo "API key file missing"; exit 1; }
+
+      - name: (Optional) Install provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/"Provisioning Profiles"
+          PROFILE_PATH=~/Library/MobileDevice/"Provisioning Profiles"/RandomAITAFinal_AppStore.mobileprovision
+          echo "${{ secrets.IOS_PROFILE_APP_STORE_BASE64 }}" | base64 -D > "$PROFILE_PATH"
+          test -s "$PROFILE_PATH" || { echo "Provisioning profile missing"; exit 1; }
+
+      - name: Create export options
         run: |
           mkdir -p ios/App
           cat > ios/App/exportOptions.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>teamID</key>
-            <string>US86BZ3GH5</string>
-            <key>uploadSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <false/>
-            <key>manageAppVersionAndBuildNumber</key>
-            <false/>
-          </dict>
+            <dict>
+              <key>method</key><string>app-store</string>
+              <key>teamID</key><string>US86BZ3GH5</string>
+              <key>uploadSymbols</key><true/>
+              <key>signingStyle</key><string>automatic</string>
+              <key>manageAppVersionAndBuildNumber</key><false/>
+            </dict>
           </plist>
           EOF
-      
+
       - name: Install CocoaPods
         run: |
           cd ios/App
-          pod install
-      
-      - name: Install CocoaPods
+          pod install --repo-update
+
+      - name: Pre-archive tripwires (fail fast if stale settings)
+        run: |
+          # No stale bundle ID anywhere in iOS project
+          if grep -R "app.randomaita.mobilefinal" -n ios/App ; then
+            echo "Stale bundle ID found: app.randomaita.mobilefinal"; exit 1;
+          fi
+
+          # Info.plist should use PRODUCT_BUNDLE_IDENTIFIER variable (not hardcoded)
+          PLIST_VAL=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" ios/App/App/Info.plist)
+          if [ "$PLIST_VAL" != '$(PRODUCT_BUNDLE_IDENTIFIER)' ]; then
+            echo "Info.plist CFBundleIdentifier should be \$(PRODUCT_BUNDLE_IDENTIFIER) but is '$PLIST_VAL'"; exit 1;
+          fi
+
+          # Show & check Release settings actually used by the scheme
+          xcodebuild -showBuildSettings \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App -configuration Release | tee /tmp/buildsettings.txt
+
+          # Must not be pinned to Developer identity
+          if grep -q 'CODE_SIGN_IDENTITY = iPhone Developer' /tmp/buildsettings.txt; then
+            echo "Release is pinned to iPhone Developer"; exit 1;
+          fi
+
+          # Must not pin provisioning profiles (let Automatic + API key choose)
+          if egrep -q 'PROVISIONING_PROFILE(_SPECIFIER)? = .+' /tmp/buildsettings.txt; then
+            echo "Provisioning profile is pinned in Release"; exit 1;
+          fi
+
+      - name: Build and sign with Xcode (Archive)
         run: |
           cd ios/App
-          pod install
-      
-      - name: Build and sign with Xcode
-        run: |
-          cd ios/App
-          
-          # Build archive - let Xcode handle signing automatically
-          xcodebuild -workspace App.xcworkspace \
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+
+          xcodebuild \
+            -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
-            -archivePath $PWD/build/App.xcarchive \
-            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/App.xcarchive" \
+            -destination "generic/platform=iOS" \
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
             DEVELOPMENT_TEAM=US86BZ3GH5 \
+            PRODUCT_BUNDLE_IDENTIFIER=app.randomaita.final \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             clean archive
-          
-          # Export for App Store - this is where distribution signing happens
+
+          # Prove archive used Distribution + the right profile
+          codesign -dvvvv build/App.xcarchive/Products/Applications/App.app 2>&1 | egrep 'Authority|TeamIdentifier'
+          security cms -D -i build/App.xcarchive/Products/Applications/App.app/embedded.mobileprovision \
+            | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin
+
+      - name: Export IPA for App Store
+        run: |
+          cd ios/App
           xcodebuild -exportArchive \
-            -archivePath $PWD/build/App.xcarchive \
-            -exportPath $PWD/build \
-            -exportOptionsPlist $PWD/exportOptions.plist \
+            -archivePath "$PWD/build/App.xcarchive" \
+            -exportPath "$PWD/build" \
+            -exportOptionsPlist "$PWD/exportOptions.plist" \
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
-      
+          ls -lh ios/App/build || true
+          ls -lh build || true
 
       - name: Upload to TestFlight
         run: |
