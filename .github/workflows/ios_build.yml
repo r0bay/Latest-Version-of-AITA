@@ -64,6 +64,29 @@ jobs:
           cd ios/App
           pod install --repo-update
 
+      - name: Normalize Xcode signing (App target)
+        run: |
+          FILE=ios/App/App.xcodeproj/project.pbxproj
+
+          # Ensure automatic signing
+          sed -i '' 's/CODE_SIGN_STYLE = Manual/CODE_SIGN_STYLE = Automatic/g' "$FILE"
+
+          # Reset any distribution identities to development
+          sed -i '' 's/CODE_SIGN_IDENTITY = "Apple Distribution"/CODE_SIGN_IDENTITY = "Apple Development"/g' "$FILE"
+          sed -i '' 's/CODE_SIGN_IDENTITY = Apple Distribution/CODE_SIGN_IDENTITY = Apple Development/g' "$FILE"
+          sed -i '' 's/CODE_SIGN_IDENTITY\[sdk=iphoneos\*\] = "Apple Distribution"/CODE_SIGN_IDENTITY[sdk=iphoneos*] = "Apple Development"/g' "$FILE"
+          sed -i '' 's/CODE_SIGN_IDENTITY\[sdk=iphoneos\*\] = Apple Distribution/CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Development/g' "$FILE"
+
+          # Unpin provisioning profiles if any
+          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' "$FILE"
+          sed -i '' 's/PROVISIONING_PROFILE = [^;]*;/PROVISIONING_PROFILE = "";/g' "$FILE"
+
+          # Show resulting Release signing settings
+          xcodebuild -showBuildSettings \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App -configuration Release | \
+            egrep 'CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE|PRODUCT_BUNDLE_IDENTIFIER'
+
       - name: Pre-archive tripwires (fail fast if stale settings)
         run: |
           # No stale bundle ID anywhere in iOS project
