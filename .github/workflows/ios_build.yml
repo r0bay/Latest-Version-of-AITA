@@ -105,9 +105,9 @@ jobs:
             -workspace ios/App/App.xcworkspace \
             -scheme App -configuration Release | tee /tmp/buildsettings.txt
 
-          # Must not be pinned to Developer identity
-          if grep -q 'CODE_SIGN_IDENTITY = iPhone Developer' /tmp/buildsettings.txt; then
-            echo "Release is pinned to iPhone Developer"; exit 1;
+          # Must not be pinned to Distribution identity (automatic signing should choose as needed)
+          if grep -q 'CODE_SIGN_IDENTITY = Apple Distribution' /tmp/buildsettings.txt; then
+            echo "Release build settings still hard-code Apple Distribution"; exit 1;
           fi
 
           # Must not pin provisioning profiles (let Automatic + API key choose)
