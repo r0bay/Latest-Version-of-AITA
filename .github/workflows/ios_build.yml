@@ -35,7 +35,7 @@ jobs:
           echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 -D > ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
           test -s ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 || { echo "API key file missing"; exit 1; }
 
-      - name: (Optional) Install provisioning profile
+      - name: Install provisioning profile
         run: |
           mkdir -p ~/Library/MobileDevice/"Provisioning Profiles"
           PROFILE_PATH=~/Library/MobileDevice/"Provisioning Profiles"/RandomAITAFinal_AppStore.mobileprovision
@@ -110,8 +110,6 @@ jobs:
             DEVELOPMENT_TEAM=US86BZ3GH5 \
             PRODUCT_BUNDLE_IDENTIFIER=app.randomaita.final \
             CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
             clean archive
 
           # Prove archive used Distribution + the right profile
@@ -130,7 +128,6 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
             -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
             -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
-          ls -lh ios/App/build || true
           ls -lh build || true
 
       - name: Upload to TestFlight
