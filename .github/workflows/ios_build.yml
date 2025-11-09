@@ -84,6 +84,19 @@ jobs:
           </plist>
           EOF
 
+      - name: Install Apple Distribution certificate
+        run: |
+          set -euo pipefail
+          CERT_PATH="${HOME}/private_keys/ios_distribution.p12"
+          echo "${{ secrets.IOS_CERT_P12_BASE64 }}" | base64 -D > "${CERT_PATH}"
+          security create-keychain -p "" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import "${CERT_PATH}" -k build.keychain -P "${{ secrets.IOS_CERT_P12_PASSWORD }}" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychains -d user -s build.keychain "${HOME}/Library/Keychains/login.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          security find-identity -v -p codesigning
+
       - name: Install CocoaPods
         run: |
           set -euo pipefail
@@ -114,10 +127,6 @@ jobs:
             -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
             PRODUCT_BUNDLE_IDENTIFIER=app.randomaita.final \
             DEVELOPMENT_TEAM=US86BZ3GH5 \
-            CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="${{ steps.profmeta.outputs.name }}" \
-            PROVISIONING_PROFILE="${{ steps.profmeta.outputs.uuid }}" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             clean archive
 
           echo "Archive created successfully. Verifying signature..."
