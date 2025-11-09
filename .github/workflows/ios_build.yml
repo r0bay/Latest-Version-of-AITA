@@ -82,7 +82,7 @@ jobs:
           cd ios/App
           pod install --repo-update
 
-      - name: Sanity: show Release signing
+      - name: Sanity check - show Release signing
         run: |
           cd ios/App
           xcodebuild -showBuildSettings -workspace App.xcworkspace -scheme App -configuration Release \
