@@ -38,7 +38,7 @@ jobs:
 
       - name: Install provisioning profile
         env:
-          PROFILE_BASE64: ${{ secrets.IOS_APP_STORE_PROFILE }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROFILE_APP_STORE_BASE64 }}
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/Library/MobileDevice/Provisioning Profiles"
@@ -52,7 +52,7 @@ jobs:
 
       - name: Setup App Store Connect API Key
         env:
-          API_KEY_BASE64: ${{ secrets.ASC_API_KEY }}
+          API_KEY_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
           KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
           set -euo pipefail
