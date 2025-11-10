@@ -1,395 +1,239 @@
 workflows:
   ios-workflow:
-    name: iOS Workflow
+    name: iOS Workflow - Clean Start
     max_build_duration: 120
     instance_type: mac_mini_m1
-    # Enable automatic code signing - requires App Store Connect integration in Codemagic UI
-    # This will authenticate Xcode with Apple and create provisioning profiles automatically
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: app.randomaita.final
       vars:
         APP_ID: app.randomaita.final
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
         XCODE_SCHEME: "App"
         BUNDLE_ID: app.randomaita.final
         TEAM_ID: US86BZ3GH5
+      groups:
+        - ios_signing  # iOS certificate and profile secrets
+        - apple_credentials  # Optional: App Store Connect API (for TestFlight upload)
     scripts:
       - name: Install Node.js dependencies
         script: |
-          npm install
-      - name: Install CocoaPods dependencies
+          npm ci
+      
+      - name: Sync Capacitor
+        script: |
+          npx cap sync ios
+      
+      - name: Install CocoaPods
         script: |
           cd ios/App
-          echo "Installing CocoaPods dependencies..."
-          pod install --repo-update || {
-            echo "Pod install failed, trying without repo update..."
-            pod install
-          }
-          echo "Verifying Pods installation..."
-          if [ ! -f "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig" ]; then
-            echo "Warning: Pods config not found, but continuing..."
-          else
-            echo "✓ Pods installed successfully"
-          fi
-          echo "Verifying workspace exists..."
-          if [ ! -f "App.xcworkspace/contents.xcworkspacedata" ]; then
-            echo "ERROR: Workspace file not found!"
-            exit 1
-          fi
+          pod install --repo-update
           cd ../..
-      - name: Verify scheme exists
+      
+      - name: Import Distribution Certificate
         script: |
-          cd ios/App
-          if [ ! -f "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme" ]; then
-            echo "ERROR: Scheme file not found"
-            exit 1
-          fi
-          cd ../..
-      - name: Sync Capacitor files
-        script: |
-          echo "Syncing Capacitor files to iOS directory..."
-          npx cap sync ios || {
-            echo "Capacitor sync failed!"
-            exit 1
-          }
-          echo "✓ Capacitor sync complete"
-          echo "Verifying AppDelegate.swift exists..."
-          if [ ! -f "ios/App/App/AppDelegate.swift" ]; then
-            echo "ERROR: AppDelegate.swift not found!"
-            exit 1
-          fi
-          echo "✓ AppDelegate.swift found"
-          echo "Re-running pod install after Capacitor sync..."
-          cd ios/App
-          pod install
-          cd ../..
-      - name: Diagnose App Store Connect signing
-        script: |
-          echo "=== Diagnosing App Store Connect Signing ==="
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "Team ID: $TEAM_ID"
+          set -euo pipefail
           
-          # Check if app-store-connect CLI is available
-          which app-store-connect || echo "⚠ app-store-connect command not found"
+          echo "=== Importing Distribution Certificate ==="
           
-          # Test API connection and show current user/team
-          echo ""
-          echo "Step 1: Testing API connection..."
-          app-store-connect whoami || {
-            echo "❌ ERROR: Could not authenticate with App Store Connect API"
-            echo "Check that Developer Portal integration is configured in Codemagic"
-            exit 1
-          }
-          echo "✓ API connection successful"
+          # Decode certificate from secret
+          CERT_FILE=$(mktemp)
+          echo "$IOS_DISTRIBUTION_CERT" | base64 -d > "$CERT_FILE"
           
-          # Check if app exists in App Store Connect (CRITICAL for App Store profiles)
-          echo ""
-          echo "Step 2: Checking if app exists in App Store Connect..."
-          echo "This is REQUIRED for App Store provisioning profiles!"
-          APP_LIST=$(app-store-connect list-apps 2>&1)
-          if echo "$APP_LIST" | grep -q "$BUNDLE_ID"; then
-            echo "✓ App found in App Store Connect!"
-            echo "$APP_LIST" | grep "$BUNDLE_ID"
-          else
-            echo ""
-            echo "❌ CRITICAL ERROR: App with bundle ID '$BUNDLE_ID' NOT FOUND in App Store Connect!"
-            echo ""
-            echo "This is why provisioning profiles can't be created."
-            echo ""
-            echo "=== YOU MUST CREATE THE APP FIRST ==="
-            echo ""
-            echo "Steps to fix:"
-            echo "1. Go to https://appstoreconnect.apple.com"
-            echo "2. Click 'My Apps' in the top navigation"
-            echo "3. Click '+' button → 'New App'"
-            echo "4. Fill in:"
-            echo "   - Platform: iOS"
-            echo "   - Name: AITA Randomizer (or any name)"
-            echo "   - Bundle ID: Select '$BUNDLE_ID' from dropdown"
-            echo "   - SKU: random-aita-final-2025 (any unique ID)"
-            echo "5. Click 'Create'"
-            echo "6. Wait 5-10 minutes for Apple to process"
-            echo "7. Run this build again"
-            echo ""
-            echo "Without an app in App Store Connect, Codemagic CANNOT create App Store provisioning profiles!"
-            echo ""
-            echo "Continuing with diagnostics..."
-          fi
+          # Verify certificate file
+          CERT_SIZE=$(wc -c < "$CERT_FILE" | tr -d ' ')
+          echo "Certificate size: $CERT_SIZE bytes"
           
-          # List existing App Store profiles for this bundle ID
-          echo ""
-          echo "Step 3: Checking existing App Store profiles..."
-          PROFILE_OUTPUT=$(app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1)
-          if echo "$PROFILE_OUTPUT" | grep -q "$BUNDLE_ID"; then
-            echo "✓ Found existing profiles:"
-            echo "$PROFILE_OUTPUT"
-          else
-            echo "⚠ No profiles found for bundle ID $BUNDLE_ID"
-            echo "Output: $PROFILE_OUTPUT"
-            echo ""
-            echo "This is expected if the app doesn't exist in App Store Connect."
-          fi
-      - name: Set up code signing
-        script: |
-          echo "=== Code Signing Setup ==="
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "Team ID: $TEAM_ID"
-          
-          # Verify environment variables are set
-          if [ -z "$BUNDLE_ID" ]; then
-            echo "ERROR: BUNDLE_ID not set"
-            exit 1
-          fi
-          if [ -z "$TEAM_ID" ]; then
-            echo "ERROR: TEAM_ID not set"
+          if [ "$CERT_SIZE" -lt 1000 ]; then
+            echo "ERROR: Certificate file too small - check base64 encoding"
             exit 1
           fi
           
-          cd ios/App
-          
-          # Ensure DEVELOPMENT_TEAM is set in project file
-          echo ""
-          echo "Setting DEVELOPMENT_TEAM in project file..."
-          sed -i.bak "s/DEVELOPMENT_TEAM = \"[^\"]*\";/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj || true
-          sed -i.bak "s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = \"$TEAM_ID\";/g" App.xcodeproj/project.pbxproj || true
-          
-          # Ensure CODE_SIGN_STYLE is Automatic
-          sed -i.bak "s/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Automatic;/g" App.xcodeproj/project.pbxproj || true
-          
-          # Verify settings
-          if grep -q "DEVELOPMENT_TEAM = \"$TEAM_ID\"" App.xcodeproj/project.pbxproj; then
-            echo "✓ DEVELOPMENT_TEAM set correctly"
-          else
-            echo "⚠ DEVELOPMENT_TEAM may not be set in all configurations"
-          fi
-          
-          if grep -q "CODE_SIGN_STYLE = Automatic" App.xcodeproj/project.pbxproj; then
-            echo "✓ CODE_SIGN_STYLE set to Automatic"
-          else
-            echo "⚠ CODE_SIGN_STYLE may not be set to Automatic"
-          fi
-          
-          cd ../..
-          
-          # Initialize keychain - REQUIRED for Codemagic code signing
-          echo ""
-          echo "Initializing keychain for code signing..."
+          # Initialize keychain
           keychain initialize
           
-          # CRITICAL: Explicitly create/fetch the provisioning profile BEFORE building
-          # This ensures the profile exists before Xcode tries to use it
-          echo ""
-          echo "=== Creating App Store Provisioning Profile ==="
-          echo "This step ensures the profile exists before the build starts"
-          echo "Bundle ID: $BUNDLE_ID"
-          echo ""
+          # Import certificate
+          echo "Importing certificate with password..."
+          keychain add-certificates \
+            --certificate "$CERT_FILE" \
+            --certificate-password "$IOS_CERT_PASSWORD"
           
-          # First, verify the app exists (required for App Store profiles)
-          echo "Step 1: Verifying app exists in App Store Connect..."
-          APP_CHECK=$(app-store-connect list-apps --filter bundleId="$BUNDLE_ID" 2>&1)
-          if echo "$APP_CHECK" | grep -q "$BUNDLE_ID" || echo "$APP_CHECK" | grep -q "not found" || [ -z "$APP_CHECK" ]; then
-            echo "⚠ App existence check inconclusive - continuing with profile creation"
-          else
-            echo "App check output: $APP_CHECK"
-          fi
-          
-          # Use Codemagic's app-store-connect CLI to create the profile
-          # The --create flag creates the profile if it doesn't exist
-          # IMPORTANT: This requires the app to exist in App Store Connect
-          echo ""
-          echo "Step 2: Creating/fetching provisioning profile..."
-          echo "Note: This will fail if app doesn't exist in App Store Connect"
-          
-          PROFILE_RESULT=$(app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create \
-            --verbose 2>&1 | tee /tmp/signing-setup.log; echo "EXIT_CODE:${PIPESTATUS[0]}")
-          
-          EXIT_CODE=$(echo "$PROFILE_RESULT" | grep "EXIT_CODE:" | cut -d: -f2)
-          
-          if [ "$EXIT_CODE" != "0" ]; then
-            echo ""
-            echo "❌ Profile creation/fetch failed!"
-            echo ""
-            echo "Build logs:"
-            cat /tmp/signing-setup.log || echo "No log file found"
-            echo ""
-            echo "Common causes:"
-            echo "1. App doesn't exist in App Store Connect (MOST COMMON)"
-            echo "   → Solution: Create app at https://appstoreconnect.apple.com"
-            echo "2. Bundle ID not properly registered"
-            echo "   → Solution: Verify bundle ID exists in Apple Developer Portal"
-            echo "3. API key doesn't have permissions"
-            echo "   → Solution: Check API key has 'Access to Certificates, Identifiers & Profiles'"
-            echo ""
-            echo "Continuing build to see if Xcode can create profile automatically..."
-          else
-            echo "✓ Profile creation/fetch completed successfully"
-          fi
-          
-          # Verify profile was created/fetched
-          echo ""
-          echo "Step 3: Verifying profile exists..."
-          PROFILE_VERIFY=$(app-store-connect list-profiles --type IOS_APP_STORE --filter bundleId="$BUNDLE_ID" 2>&1)
-          if echo "$PROFILE_VERIFY" | grep -q "$BUNDLE_ID"; then
-            echo "✓ Profile verified:"
-            echo "$PROFILE_VERIFY"
-          else
-            echo "⚠ Profile verification failed - output:"
-            echo "$PROFILE_VERIFY"
-            echo ""
-            echo "This might cause the build to fail. Make sure:"
-            echo "1. App exists in App Store Connect with bundle ID: $BUNDLE_ID"
-            echo "2. Waited 5-10 minutes after creating the app"
-          fi
-          
-          # Apply profiles to Xcode project
-          echo ""
-          echo "Applying profiles to Xcode project..."
-          cd ios/App
-          xcode-project use-profiles || {
-            echo "⚠ Could not apply profiles yet - Xcode will create during build if needed"
+          # Verify import
+          security find-identity -v -p codesigning | grep "Apple Distribution" || {
+            echo "WARNING: Apple Distribution certificate not found in keychain"
           }
-          cd ../..
           
-          echo ""
-          echo "✓ Code signing setup complete"
-          echo "Profile should now exist for bundle ID: $BUNDLE_ID"
-      - name: Clean build folder
+          rm -f "$CERT_FILE"
+          echo "✓ Certificate imported successfully"
+      
+      - name: Install Provisioning Profile
         script: |
-          cd ios/App
-          echo "Cleaning build folder..."
-          xcodebuild clean \
-            -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release
-          cd ../..
-      - name: Build ipa for distribution
-        script: |
-          cd ios/App
-          mkdir -p "$CM_BUILD_DIR"
-          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          set -euo pipefail
           
-          echo "Building archive..."
-          echo "Workspace: App.xcworkspace"
-          echo "Scheme: App"
-          echo "Archive path: $ARCHIVE_PATH"
-          echo "Team ID: $TEAM_ID"
-          echo "Bundle ID: $BUNDLE_ID"
+          echo "=== Installing Provisioning Profile ==="
           
-          # Verify Pods are properly installed before building
-          echo "Verifying Pods installation..."
-          if [ ! -d "Pods/Google-Mobile-Ads-SDK" ]; then
-            echo "ERROR: Google-Mobile-Ads-SDK not found in Pods!"
-            echo "Running pod install again..."
-            pod install
-          fi
+          # Decode profile from secret
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
           
-          # Verify workspace file exists
-          if [ ! -f "App.xcworkspace/contents.xcworkspacedata" ]; then
-            echo "ERROR: Workspace file not found!"
+          PROFILE_FILE="$PROFILE_DIR/RandomAITAFinal_AppStore_New.mobileprovision"
+          echo "$IOS_PROFILE_APP_STORE_BASE64" | base64 -d > "$PROFILE_FILE"
+          
+          # Verify profile
+          PROFILE_SIZE=$(wc -c < "$PROFILE_FILE" | tr -d ' ')
+          echo "Profile size: $PROFILE_SIZE bytes"
+          
+          if [ "$PROFILE_SIZE" -lt 1000 ]; then
+            echo "ERROR: Profile file too small - check base64 encoding"
             exit 1
           fi
           
-          # Build with automatic provisioning
-          # The -allowProvisioningUpdates flag allows Xcode to create profiles automatically
-          # Codemagic's ios_signing should also help create profiles
-          echo ""
-          echo "Starting archive build..."
-          echo "This will automatically create provisioning profiles if they don't exist"
-          echo "Using Team ID: $TEAM_ID, Bundle ID: $BUNDLE_ID"
+          # Read profile metadata (Name and UUID)
+          PROFILE_PLIST=$(security cms -D -i "$PROFILE_FILE")
+          PROFILE_NAME=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :Name" /dev/stdin 2>/dev/null || echo "RandomAITAFinal_AppStore_New")
+          PROFILE_UUID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin 2>/dev/null || echo "")
+          
+          echo "Profile Name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+          
+          # Save profile name to file for use in later steps
+          echo "$PROFILE_NAME" > /tmp/profile_name.txt
+          
+          echo "✓ Provisioning profile installed"
+      
+      - name: Configure Xcode Project
+        script: |
+          set -euo pipefail
+          cd ios/App
+          
+          # Read profile name from file (set in previous step)
+          PROFILE_NAME=$(cat /tmp/profile_name.txt 2>/dev/null || echo "RandomAITAFinal_AppStore_New")
+          
+          echo "Configuring Xcode project for manual code signing..."
+          echo "Profile: $PROFILE_NAME"
+          echo "Team ID: $TEAM_ID"
+          echo "Bundle ID: $BUNDLE_ID"
+          
+          # Set development team (if not already set)
+          sed -i.bak "s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $TEAM_ID;/g" App.xcodeproj/project.pbxproj || true
+          
+          # Note: Command-line parameters in xcodebuild will override project settings
+          # So we don't need to modify the project file extensively
+          
+          cd ../..
+          echo "✓ Xcode project ready (signing settings will be set via command-line)"
+      
+      - name: Build Archive
+        script: |
+          set -euo pipefail
+          cd ios/App
+          
+          # Read profile name from file
+          PROFILE_NAME=$(cat /tmp/profile_name.txt 2>/dev/null || echo "RandomAITAFinal_AppStore_New")
+          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          
+          echo "Building archive with profile: $PROFILE_NAME"
           
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
             -archivePath "$ARCHIVE_PATH" \
-            -allowProvisioningUpdates \
-            -destination "generic/platform=iOS" \
             -configuration Release \
-            -UseModernBuildSystem=1 \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            SWIFT_VERSION=5.0 \
-            SWIFT_OPTIMIZATION_LEVEL="-O" \
-            CLANG_ENABLE_MODULES=YES \
-            SWIFT_ENABLE_BATCH_MODE=YES \
-            2>&1 | tee /tmp/xcodebuild.log || {
-            echo ""
-            echo "=== BUILD FAILED ==="
-            echo "Last 200 lines of build log:"
-            tail -200 /tmp/xcodebuild.log
-            echo ""
-            echo "=== SEARCHING FOR KEY ERRORS ==="
-            echo "Provisioning profile errors:"
-            grep -i "profile\|provisioning" /tmp/xcodebuild.log | tail -20
-            echo ""
-            echo "Code signing errors:"
-            grep -i "sign\|certificate" /tmp/xcodebuild.log | tail -20
-            echo ""
-            echo "Bundle ID errors:"
-            grep -i "bundle\|identifier" /tmp/xcodebuild.log | tail -20
-            echo ""
-            echo "General errors:"
-            grep -i "error\|failed\|cannot" /tmp/xcodebuild.log | tail -30
-            exit 1
-          }
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
           
           if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERROR: Archive not created at $ARCHIVE_PATH"
-            echo "Build log:"
-            tail -100 /tmp/xcodebuild.log
+            echo "ERROR: Archive not created"
             exit 1
           fi
-          echo "✓ Archive created successfully at $ARCHIVE_PATH"
+          
+          echo "✓ Archive created successfully"
           cd ../..
+      
       - name: Export IPA
         script: |
+          set -euo pipefail
+          
+          # Read profile name from file
+          PROFILE_NAME=$(cat /tmp/profile_name.txt 2>/dev/null || echo "RandomAITAFinal_AppStore_New")
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
-          if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERROR: Archive not found at $ARCHIVE_PATH"
-            exit 1
-          fi
           
-          # Verify export_options.plist exists and has team ID
-          if [ ! -f "export_options.plist" ]; then
-            echo "ERROR: export_options.plist not found"
-            exit 1
-          fi
+          # Create export options
+          cat > export_options.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
           
-          echo "Exporting IPA with team ID: $TEAM_ID"
-          echo "Note: Codemagic should automatically create distribution certificates via App Store Connect API"
-          
-          # Export - Codemagic's App Store Connect API integration should provide certificates
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist export_options.plist \
-            -exportPath "$CM_BUILD_DIR" \
-            -allowProvisioningUpdates
+            -exportPath "$CM_BUILD_DIR"
           
-          # Verify IPA was created
           IPA_FILE=$(find "$CM_BUILD_DIR" -name "*.ipa" -type f | head -1)
-          if [ -n "$IPA_FILE" ]; then
-            echo "✓ IPA exported successfully: $IPA_FILE"
-            ls -la "$IPA_FILE"
-          else
-            echo "ERROR: IPA not found after export"
-            echo ""
-            echo "This error means Codemagic couldn't create distribution certificates."
-            echo "Make sure:"
-            echo "1. App Store Connect API integration 'apple_credentials' is configured in Codemagic"
-            echo "2. The API key has 'App Manager' or 'Admin' role"
-            echo "3. The bundle ID 'app.randomaita.final' is registered in App Store Connect"
-            echo ""
-            echo "Contents of export directory:"
-            ls -la "$CM_BUILD_DIR"
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: IPA not found"
             exit 1
           fi
+          
+          echo "✓ IPA exported: $IPA_FILE"
+          ls -lh "$IPA_FILE"
+      
+      - name: Upload to TestFlight (Optional)
+        script: |
+          set -euo pipefail
+          
+          IPA_FILE=$(find "$CM_BUILD_DIR" -name "*.ipa" -type f | head -1)
+          
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: IPA file not found"
+            exit 1
+          fi
+          
+          # Check if App Store Connect API credentials are available
+          if [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ]; then
+            echo "⚠ App Store Connect API credentials not found"
+            echo "Skipping TestFlight upload. You can upload manually from Codemagic artifacts."
+            echo "IPA file: $IPA_FILE"
+            exit 0
+          fi
+          
+          echo "Uploading to TestFlight..."
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_FILE" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID" || {
+            echo "⚠ TestFlight upload failed, but IPA is available as artifact"
+            exit 0
+          }
+          
+          echo "✓ Uploaded to TestFlight"
+    
     artifacts:
-      - build/**/*.xcarchive
       - build/**/*.ipa
+      - build/**/*.xcarchive
+    
     publishing:
       email:
         recipients:
