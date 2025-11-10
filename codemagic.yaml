@@ -141,48 +141,45 @@ workflows:
           : "${PROFILE_NAME:?PROFILE_NAME is not set (ensure profile install step wrote it)}"
           
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
-          [ -d "$ARCHIVE_PATH" ] || { echo "Archive not found"; exit 1; }
+          [ -d "$ARCHIVE_PATH" ] || { echo "ERROR: Archive not found at $ARCHIVE_PATH"; exit 1; }
+          
+          # Verify ExportOptions.plist template exists
+          if [ ! -f "ExportOptions.plist" ]; then
+            echo "ERROR: ExportOptions.plist template not found"
+            echo "This file should be committed to git at ios/App/ExportOptions.plist"
+            exit 1
+          fi
           
           echo "=== Exporting IPA ==="
           SAFE_PROFILE_NAME=${PROFILE_NAME//\"/\\\"}
           
-          if [ -f "ExportOptions.plist" ]; then
-            cp ExportOptions.plist ExportOptions.processed.plist
-            /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" ExportOptions.processed.plist
-            /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:$BUNDLE_ID" ExportOptions.processed.plist 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:app.randomaita.final" ExportOptions.processed.plist 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $SAFE_PROFILE_NAME" ExportOptions.processed.plist
-            EXPORT_OPTIONS_FILE="ExportOptions.processed.plist"
-          else
-            # Minimal skeleton so PlistBuddy always works
-            cat > ExportOptions.plist <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict/></plist>
-EOF
-            /usr/libexec/PlistBuddy -c "Add :method string app-store" ExportOptions.plist
-            /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.plist
-            /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.plist
-            /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" ExportOptions.plist
-            /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.plist
-            /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.plist
-            /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist
-            /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $SAFE_PROFILE_NAME" ExportOptions.plist
-            EXPORT_OPTIONS_FILE="ExportOptions.plist"
-          fi
+          # Process template safely with PlistBuddy
+          cp ExportOptions.plist ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" ExportOptions.processed.plist || {
+            echo "ERROR: Failed to set teamID in ExportOptions.plist"
+            exit 1
+          }
+          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:$BUNDLE_ID" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:app.randomaita.final" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $SAFE_PROFILE_NAME" ExportOptions.processed.plist || {
+            echo "ERROR: Failed to set provisioning profile in ExportOptions.plist"
+            echo "Bundle ID: $BUNDLE_ID"
+            echo "Profile Name: $SAFE_PROFILE_NAME"
+            exit 1
+          }
           
           EXPORT_PATH="$CM_BUILD_DIR/ipa"
           mkdir -p "$EXPORT_PATH"
           
-          echo "Export options file: $EXPORT_OPTIONS_FILE"
+          echo "Export options file: ExportOptions.processed.plist"
           echo "Export options content:"
-          cat "$EXPORT_OPTIONS_FILE"
+          cat ExportOptions.processed.plist
           echo ""
           
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_PATH" \
-            -exportOptionsPlist "$EXPORT_OPTIONS_FILE" \
+            -exportOptionsPlist ExportOptions.processed.plist \
             2>&1 | tee /tmp/export.log || {
             echo ""
             echo "=== IPA EXPORT FAILED ==="
@@ -194,9 +191,13 @@ EOF
           }
           
           IPA_FILE=$(find "$EXPORT_PATH" -name "*.ipa" -type f | head -1 || true)
-          [ -n "$IPA_FILE" ] || { echo "IPA not found"; tail -50 /tmp/export.log || true; exit 1; }
+          [ -n "$IPA_FILE" ] || { 
+            echo "ERROR: IPA file not found after export"
+            tail -50 /tmp/export.log || true
+            exit 1
+          }
           
-          echo "✓ IPA exported: $IPA_FILE"
+          echo "✓ IPA exported successfully: $IPA_FILE"
           ls -lh "$IPA_FILE"
           
           cd ../..
