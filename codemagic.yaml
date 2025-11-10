@@ -11,7 +11,7 @@ workflows:
         BUNDLE_ID: app.randomaita.final
         TEAM_ID: US86BZ3GH5
       groups:
-        - ios_signing  # iOS certificate and profile secrets
+        - ios_signing  # iOS certificate and profile secrets (CERT_P12_BASE64, P12_PASSWORD, MOBILEPROVISION_BASE64, PROFILE_NAME)
     scripts:
       - name: Install Node.js dependencies
         script: |
@@ -21,304 +21,94 @@ workflows:
         script: |
           npx cap sync ios
       
-      - name: Install CocoaPods
+      - name: Clear DerivedData
         script: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+      
+      - name: Install Certificate and Provisioning Profile
+        script: |
+          set -euo pipefail
+          
+          : "${CERT_P12_BASE64:?missing CERT_P12_BASE64}"
+          : "${P12_PASSWORD:?missing P12_PASSWORD}"
+          : "${MOBILEPROVISION_BASE64:?missing MOBILEPROVISION_BASE64}"
+          
+          # Create a temporary keychain to avoid collisions
+          KEYCHAIN=build.keychain
+          security create-keychain -p "" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 7200 "$KEYCHAIN"
+          
+          # Import p12
+          echo "$CERT_P12_BASE64" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+          
+          # Install provisioning profile
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$MOBILEPROVISION_BASE64" | base64 --decode > /tmp/profile.mobileprovision
+          
+          # Extract UUID from profile to filename
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)" 2>/dev/null)
+          : "${PROFILE_UUID:?Failed to parse profile UUID}"
+          cp /tmp/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          
+          # Persist name/uuid for later steps
+          PROFILE_NAME_SAFE=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)" 2>/dev/null || true)
+          : "${PROFILE_NAME:?missing PROFILE_NAME}"
+          echo "${PROFILE_NAME_SAFE:-$PROFILE_NAME}" > /tmp/profile_name.txt
+          echo "$PROFILE_UUID" > /tmp/profile_uuid.txt
+          
+          echo "✓ Certificate imported and profile installed ($PROFILE_UUID)"
+      
+      - name: Clean Pods Deterministically
+        script: |
+          set -euo pipefail
           cd ios/App
+          pod repo update
+          pod deintegrate || true
+          rm -rf Pods Podfile.lock
           pod install --repo-update
           cd ../..
       
-      - name: Import Distribution Certificate
-        script: |
-          set -euo pipefail
-          
-          echo "=== Importing Distribution Certificate ==="
-          
-          # Verify secrets are set
-          if [ -z "${IOS_DISTRIBUTION_CERT:-}" ]; then
-            echo "ERROR: IOS_DISTRIBUTION_CERT secret is not set"
-            echo "Please add IOS_DISTRIBUTION_CERT to the ios_signing group in Codemagic"
-            exit 1
-          fi
-          
-          if [ -z "${IOS_CERT_PASSWORD:-}" ]; then
-            echo "ERROR: IOS_CERT_PASSWORD secret is not set"
-            echo "Please add IOS_CERT_PASSWORD to the ios_signing group in Codemagic"
-            exit 1
-          fi
-          
-          # Decode certificate from secret
-          CERT_FILE=$(mktemp)
-          echo "$IOS_DISTRIBUTION_CERT" | base64 -d > "$CERT_FILE" 2>/dev/null || {
-            echo "ERROR: Failed to decode certificate from base64"
-            echo "Please verify IOS_DISTRIBUTION_CERT is correctly base64-encoded"
-            rm -f "$CERT_FILE"
-            exit 1
-          }
-          
-          # Verify certificate file
-          CERT_SIZE=$(wc -c < "$CERT_FILE" | tr -d ' ')
-          echo "Certificate size: $CERT_SIZE bytes"
-          
-          if [ "$CERT_SIZE" -lt 1000 ]; then
-            echo "ERROR: Certificate file too small ($CERT_SIZE bytes) - check base64 encoding"
-            echo "Expected: ~3000-5000 bytes for a valid .p12 certificate"
-            rm -f "$CERT_FILE"
-            exit 1
-          fi
-          
-          # Initialize keychain
-          echo "Initializing keychain..."
-          keychain initialize
-          
-          # Import certificate
-          echo "Importing certificate with password..."
-          keychain add-certificates \
-            --certificate "$CERT_FILE" \
-            --certificate-password "$IOS_CERT_PASSWORD" || {
-            echo "ERROR: Failed to import certificate"
-            echo "Possible causes:"
-            echo "1. Wrong password - verify IOS_CERT_PASSWORD is correct"
-            echo "2. Certificate file is corrupted - re-encode the .p12 file"
-            echo "3. Certificate is not an Apple Distribution certificate"
-            rm -f "$CERT_FILE"
-            exit 1
-          }
-          
-          # Verify import and certificate type
-          echo "Verifying certificate import..."
-          CERT_IDENTITY=$(security find-identity -v -p codesigning | grep "Apple Distribution" || echo "")
-          
-          if [ -z "$CERT_IDENTITY" ]; then
-            echo "ERROR: Apple Distribution certificate not found in keychain after import"
-            echo "Available certificates:"
-            security find-identity -v -p codesigning || true
-            echo ""
-            echo "Please verify:"
-            echo "1. The certificate is an Apple Distribution certificate (not Development)"
-            echo "2. The certificate was created for the correct team (US86BZ3GH5)"
-            rm -f "$CERT_FILE"
-            exit 1
-          fi
-          
-          echo "✓ Certificate imported successfully"
-          echo "Certificate identity: $CERT_IDENTITY"
-          
-          rm -f "$CERT_FILE"
-      
-      - name: Install Provisioning Profile
-        script: |
-          set -euo pipefail
-          
-          echo "=== Installing Provisioning Profile ==="
-          
-          # Verify secret is set
-          if [ -z "${IOS_PROFILE_APP_STORE_BASE64:-}" ]; then
-            echo "ERROR: IOS_PROFILE_APP_STORE_BASE64 secret is not set"
-            echo "Please add IOS_PROFILE_APP_STORE_BASE64 to the ios_signing group in Codemagic"
-            exit 1
-          fi
-          
-          # Decode profile from secret
-          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PROFILE_DIR"
-          
-          PROFILE_FILE="$PROFILE_DIR/RandomAITAFinal_AppStore_New.mobileprovision"
-          echo "$IOS_PROFILE_APP_STORE_BASE64" | base64 -d > "$PROFILE_FILE" 2>/dev/null || {
-            echo "ERROR: Failed to decode provisioning profile from base64"
-            echo "Please verify IOS_PROFILE_APP_STORE_BASE64 is correctly base64-encoded"
-            exit 1
-          }
-          
-          # Verify profile file
-          PROFILE_SIZE=$(wc -c < "$PROFILE_FILE" | tr -d ' ')
-          echo "Profile size: $PROFILE_SIZE bytes"
-          
-          if [ "$PROFILE_SIZE" -lt 1000 ]; then
-            echo "ERROR: Profile file too small ($PROFILE_SIZE bytes) - check base64 encoding"
-            echo "Expected: ~5000-15000 bytes for a valid .mobileprovision file"
-            exit 1
-          fi
-          
-          # Read profile metadata (Name, UUID, Bundle ID, Team ID)
-          PROFILE_PLIST=$(security cms -D -i "$PROFILE_FILE" 2>/dev/null) || {
-            echo "ERROR: Failed to read provisioning profile"
-            echo "The profile file may be corrupted or not a valid .mobileprovision file"
-            exit 1
-          }
-          
-          PROFILE_NAME=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :Name" /dev/stdin 2>/dev/null || echo "")
-          PROFILE_UUID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin 2>/dev/null || echo "")
-          PROFILE_BUNDLE_ID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /dev/stdin 2>/dev/null | sed 's/^[^.]*\.//' || echo "")
-          PROFILE_TEAM_ID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /dev/stdin 2>/dev/null || echo "")
-          PROFILE_TYPE=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :ProvisionedDevices" /dev/stdin 2>/dev/null >/dev/null && echo "Development" || echo "App Store")
-          
-          echo "Profile Name: $PROFILE_NAME"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Bundle ID: $PROFILE_BUNDLE_ID"
-          echo "Profile Team ID: $PROFILE_TEAM_ID"
-          echo "Profile Type: $PROFILE_TYPE"
-          
-          # Validate profile name and UUID
-          if [ -z "$PROFILE_NAME" ] && [ -z "$PROFILE_UUID" ]; then
-            echo "ERROR: Could not extract profile name or UUID from provisioning profile"
-            echo "The profile file may be corrupted"
-            exit 1
-          fi
-          
-          # Use UUID if name is empty, otherwise use name
-          if [ -z "$PROFILE_NAME" ]; then
-            echo "WARNING: Profile name is empty, using UUID as fallback"
-            PROFILE_NAME="$PROFILE_UUID"
-          fi
-          
-          if [ -z "$PROFILE_UUID" ]; then
-            echo "ERROR: Profile UUID is required but not found in profile"
-            exit 1
-          fi
-          
-          # Validate bundle ID matches
-          if [ "$PROFILE_BUNDLE_ID" != "$BUNDLE_ID" ]; then
-            echo "ERROR: Profile bundle ID mismatch!"
-            echo "Expected: $BUNDLE_ID"
-            echo "Found: $PROFILE_BUNDLE_ID"
-            echo ""
-            echo "The provisioning profile is for a different bundle ID."
-            echo "Please create a new provisioning profile for bundle ID: $BUNDLE_ID"
-            exit 1
-          fi
-          
-          # Validate team ID matches
-          if [ "$PROFILE_TEAM_ID" != "$TEAM_ID" ]; then
-            echo "ERROR: Profile team ID mismatch!"
-            echo "Expected: $TEAM_ID"
-            echo "Found: $PROFILE_TEAM_ID"
-            echo ""
-            echo "The provisioning profile is for a different team."
-            echo "Please create a new provisioning profile for team: $TEAM_ID"
-            exit 1
-          fi
-          
-          # Validate profile type is App Store
-          if [ "$PROFILE_TYPE" != "App Store" ]; then
-            echo "ERROR: Profile type is not App Store!"
-            echo "Found: $PROFILE_TYPE"
-            echo ""
-            echo "This profile is for $PROFILE_TYPE distribution, not App Store."
-            echo "Please create an App Store provisioning profile."
-            exit 1
-          fi
-          
-          # Save profile name and UUID to files for use in later steps
-          echo "$PROFILE_NAME" > /tmp/profile_name.txt
-          echo "$PROFILE_UUID" > /tmp/profile_uuid.txt
-          
-          echo "✓ Provisioning profile installed and validated"
-          echo "  Name: $PROFILE_NAME"
-          echo "  UUID: $PROFILE_UUID"
-          echo "  Bundle ID: $PROFILE_BUNDLE_ID ✓"
-          echo "  Team ID: $PROFILE_TEAM_ID ✓"
-          echo "  Type: $PROFILE_TYPE ✓"
-      
-      - name: Configure Xcode Project
+      - name: Verify Signing Configuration
         script: |
           set -euo pipefail
           cd ios/App
           
-          # Read profile name and UUID from files (set in previous step)
-          PROFILE_NAME=$(cat /tmp/profile_name.txt 2>/dev/null || echo "")
-          PROFILE_UUID=$(cat /tmp/profile_uuid.txt 2>/dev/null || echo "")
+          echo "=== App target (Release) ==="
+          xcodebuild -showBuildSettings -workspace App.xcworkspace -scheme App -configuration Release 2>/dev/null \
+           | grep -E "PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|PROVISIONING_PROFILE_SPECIFIER" | sed 's/^[[:space:]]*//'
           
-          if [ -z "$PROFILE_UUID" ]; then
-            echo "ERROR: Profile UUID not found. Provisioning profile installation must have failed."
-            exit 1
-          fi
-          
-          echo "=== Configuring Xcode Project ==="
-          echo "Profile Name: $PROFILE_NAME"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Team ID: $TEAM_ID"
-          echo "Bundle ID: $BUNDLE_ID"
-          
-          # Verify bundle ID in project file
-          echo "Verifying bundle ID in project file..."
-          PROJECT_BUNDLE_ID=$(xcodebuild -showBuildSettings -workspace App.xcworkspace -scheme App -configuration Release 2>/dev/null | grep "PRODUCT_BUNDLE_IDENTIFIER" | head -1 | sed 's/.*= *//' | tr -d ' ' || echo "")
-          
-          if [ -n "$PROJECT_BUNDLE_ID" ] && [ "$PROJECT_BUNDLE_ID" != "$BUNDLE_ID" ]; then
-            echo "WARNING: Project bundle ID ($PROJECT_BUNDLE_ID) doesn't match expected ($BUNDLE_ID)"
-            echo "This will be overridden by command-line parameter, but may cause issues"
-          else
-            echo "✓ Bundle ID matches: $BUNDLE_ID"
-          fi
-          
-          # Set development team (if not already set)
-          echo "Setting development team..."
-          sed -i.bak "s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $TEAM_ID;/g" App.xcodeproj/project.pbxproj || true
-          
-          # Verify team ID was set
-          if grep -q "DEVELOPMENT_TEAM = $TEAM_ID" App.xcodeproj/project.pbxproj; then
-            echo "✓ Development team set to $TEAM_ID"
-          else
-            echo "⚠ Development team may not be set in all configurations"
-            echo "Will be overridden by command-line parameter"
-          fi
-          
-          # Note: Command-line parameters in xcodebuild will override project settings
-          # So we don't need to modify the project file extensively
+          echo ""
+          echo "=== Pods-App target (Release) — expect CODE_SIGNING_ALLOWED = NO ==="
+          xcodebuild -showBuildSettings -project Pods/Pods.xcodeproj -target Pods-App -configuration Release 2>/dev/null \
+           | grep -E "CODE_SIGNING_ALLOWED|CODE_SIGN_STYLE|PROVISIONING_PROFILE" | sed 's/^[[:space:]]*//' || echo "Pods-App target not found (this is OK if pods not installed yet)"
           
           cd ../..
-          echo "✓ Xcode project configured"
-          echo "  Bundle ID: $BUNDLE_ID"
-          echo "  Team ID: $TEAM_ID"
-          echo "  Profile UUID: $PROFILE_UUID (will be used for signing)"
       
       - name: Build Archive
         script: |
           set -euo pipefail
           cd ios/App
           
-          # Read profile UUID from file (more reliable than name)
-          PROFILE_UUID=$(cat /tmp/profile_uuid.txt 2>/dev/null || echo "")
-          PROFILE_NAME=$(cat /tmp/profile_name.txt 2>/dev/null || echo "")
-          
-          if [ -z "$PROFILE_UUID" ]; then
-            echo "ERROR: Profile UUID not found"
-            echo "Provisioning profile installation must have failed in previous step"
-            exit 1
-          fi
+          : "${TEAM_ID:?TEAM_ID is not set}"
+          : "${BUNDLE_ID:?BUNDLE_ID is not set}"
           
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           
           echo "=== Building Archive ==="
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Name: $PROFILE_NAME"
           echo "Bundle ID: $BUNDLE_ID"
           echo "Team ID: $TEAM_ID"
           echo "Archive Path: $ARCHIVE_PATH"
           
-          # Verify workspace exists
-          if [ ! -f "App.xcworkspace/contents.xcworkspacedata" ]; then
-            echo "ERROR: Workspace file not found at App.xcworkspace"
-            echo "Please verify the workspace was created correctly"
-            exit 1
-          fi
-          
-          # Verify scheme exists
-          if [ ! -f "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme" ]; then
-            echo "ERROR: Scheme file not found"
-            echo "Please verify the App scheme exists in the Xcode project"
-            exit 1
-          fi
-          
-          echo "Starting archive build..."
           xcodebuild archive \
             -workspace App.xcworkspace \
             -scheme App \
             -archivePath "$ARCHIVE_PATH" \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             2>&1 | tee /tmp/archive_build.log || {
@@ -328,25 +118,13 @@ workflows:
             echo "Error details from build log:"
             tail -50 /tmp/archive_build.log
             echo ""
-            echo "Common issues:"
-            echo "1. Provisioning profile not found - verify profile UUID: $PROFILE_UUID"
-            echo "2. Certificate not found - verify certificate was imported correctly"
-            echo "3. Bundle ID mismatch - verify bundle ID: $BUNDLE_ID"
-            echo "4. Team ID mismatch - verify team ID: $TEAM_ID"
-            echo ""
             exit 1
           }
           
           if [ ! -d "$ARCHIVE_PATH" ]; then
             echo "ERROR: Archive was not created at $ARCHIVE_PATH"
-            echo "Check build log above for errors"
             exit 1
           fi
-          
-          # Verify archive was signed correctly
-          echo "Verifying archive signature..."
-          codesign -dvv "$ARCHIVE_PATH/Products/Applications/App.app" 2>&1 | grep -i "authority\|team" || echo "Signature verification output:"
-          codesign -dvv "$ARCHIVE_PATH/Products/Applications/App.app" 2>&1 | head -10
           
           echo "✓ Archive created successfully at $ARCHIVE_PATH"
           cd ../..
@@ -354,65 +132,57 @@ workflows:
       - name: Export IPA
         script: |
           set -euo pipefail
+          cd ios/App
           
-          # Read profile name from file (Apple requires name in exportOptions.plist, not UUID)
+          : "${TEAM_ID:?TEAM_ID is not set}"
+          : "${BUNDLE_ID:?BUNDLE_ID is not set}"
+          
           PROFILE_NAME=$(cat /tmp/profile_name.txt 2>/dev/null || echo "")
-          PROFILE_UUID=$(cat /tmp/profile_uuid.txt 2>/dev/null || echo "")
+          : "${PROFILE_NAME:?PROFILE_NAME is not set (ensure profile install step wrote it)}"
+          
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
-          
-          if [ -z "$PROFILE_NAME" ]; then
-            echo "ERROR: Profile name not found"
-            echo "Cannot create exportOptions.plist without profile name"
-            exit 1
-          fi
-          
-          if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERROR: Archive not found at $ARCHIVE_PATH"
-            echo "Archive build must have failed in previous step"
-            exit 1
-          fi
+          [ -d "$ARCHIVE_PATH" ] || { echo "Archive not found"; exit 1; }
           
           echo "=== Exporting IPA ==="
-          echo "Profile Name: $PROFILE_NAME (used in exportOptions.plist)"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "Team ID: $TEAM_ID"
+          SAFE_PROFILE_NAME=${PROFILE_NAME//\"/\\\"}
           
-          # Create export options plist
-          # Note: Apple requires profile NAME (not UUID) in exportOptions.plist
-          cat > export_options.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>teamID</key>
-            <string>$TEAM_ID</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>$BUNDLE_ID</key>
-              <string>$PROFILE_NAME</string>
-            </dict>
-            <key>uploadSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <false/>
-          </dict>
-          </plist>
-          EOF
+          if [ -f "ExportOptions.plist" ]; then
+            cp ExportOptions.plist ExportOptions.processed.plist
+            /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" ExportOptions.processed.plist
+            /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:$BUNDLE_ID" ExportOptions.processed.plist 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:app.randomaita.final" ExportOptions.processed.plist 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $SAFE_PROFILE_NAME" ExportOptions.processed.plist
+            EXPORT_OPTIONS_FILE="ExportOptions.processed.plist"
+          else
+            # Minimal skeleton so PlistBuddy always works
+            cat > ExportOptions.plist <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict/></plist>
+EOF
+            /usr/libexec/PlistBuddy -c "Add :method string app-store" ExportOptions.plist
+            /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.plist
+            /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.plist
+            /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" ExportOptions.plist
+            /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.plist
+            /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.plist
+            /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist
+            /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $SAFE_PROFILE_NAME" ExportOptions.plist
+            EXPORT_OPTIONS_FILE="ExportOptions.plist"
+          fi
           
-          echo "Export options created:"
-          cat export_options.plist
+          EXPORT_PATH="$CM_BUILD_DIR/ipa"
+          mkdir -p "$EXPORT_PATH"
+          
+          echo "Export options file: $EXPORT_OPTIONS_FILE"
+          echo "Export options content:"
+          cat "$EXPORT_OPTIONS_FILE"
           echo ""
           
-          echo "Exporting IPA from archive..."
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
-            -exportOptionsPlist export_options.plist \
-            -exportPath "$CM_BUILD_DIR" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS_FILE" \
             2>&1 | tee /tmp/export.log || {
             echo ""
             echo "=== IPA EXPORT FAILED ==="
@@ -420,46 +190,25 @@ workflows:
             echo "Error details from export log:"
             tail -50 /tmp/export.log
             echo ""
-            echo "Common issues:"
-            echo "1. Provisioning profile name mismatch - verify profile name: $PROFILE_NAME"
-            echo "2. Certificate not found - verify certificate is in keychain"
-            echo "3. Profile not found - verify profile is installed correctly"
-            echo "4. Bundle ID mismatch - verify bundle ID: $BUNDLE_ID"
-            echo ""
-            echo "Troubleshooting steps:"
-            echo "1. Check that the profile name in exportOptions.plist matches the actual profile name"
-            echo "2. Verify the certificate is Apple Distribution type"
-            echo "3. Verify the profile is for App Store distribution"
-            echo ""
             exit 1
           }
           
-          IPA_FILE=$(find "$CM_BUILD_DIR" -name "*.ipa" -type f | head -1)
-          if [ -z "$IPA_FILE" ]; then
-            echo "ERROR: IPA file not found after export"
-            echo "Export directory contents:"
-            ls -la "$CM_BUILD_DIR" || true
-            echo ""
-            echo "Check export log above for errors"
-            exit 1
-          fi
+          IPA_FILE=$(find "$EXPORT_PATH" -name "*.ipa" -type f | head -1 || true)
+          [ -n "$IPA_FILE" ] || { echo "IPA not found"; tail -50 /tmp/export.log || true; exit 1; }
           
-          IPA_SIZE=$(ls -lh "$IPA_FILE" | awk '{print $5}')
-          echo "✓ IPA exported successfully"
-          echo "  File: $IPA_FILE"
-          echo "  Size: $IPA_SIZE"
-          echo "  Profile: $PROFILE_NAME"
-          echo "  Bundle ID: $BUNDLE_ID"
+          echo "✓ IPA exported: $IPA_FILE"
           ls -lh "$IPA_FILE"
+          
+          cd ../..
       
       - name: Upload to TestFlight (Optional)
         script: |
           set -euo pipefail
           
-          IPA_FILE=$(find "$CM_BUILD_DIR" -name "*.ipa" -type f | head -1)
+          IPA_FILE=$(find "$CM_BUILD_DIR/ipa" -name "*.ipa" -type f | head -1 || true)
           
           if [ -z "$IPA_FILE" ]; then
-            echo "ERROR: IPA file not found"
+            echo "ERROR: IPA file not found in $CM_BUILD_DIR/ipa"
             echo "IPA export must have failed in previous step"
             exit 1
           fi
@@ -515,8 +264,9 @@ workflows:
           echo "Check App Store Connect for processing status"
     
     artifacts:
-      - build/**/*.ipa
+      - build/ipa/*.ipa
       - build/**/*.xcarchive
+      - ios/App/ExportOptions.processed.plist
     
     publishing:
       email:
