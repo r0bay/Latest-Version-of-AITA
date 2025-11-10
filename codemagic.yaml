@@ -30,34 +30,58 @@ workflows:
           set -euo pipefail
           
           : "${CERT_P12_BASE64:?missing CERT_P12_BASE64}"
-          : "${P12_PASSWORD:?missing P12_PASSWORD}"
           : "${MOBILEPROVISION_BASE64:?missing MOBILEPROVISION_BASE64}"
+          # P12_PASSWORD may be empty; do NOT require it
           
-          # Create a temporary keychain to avoid collisions
           KEYCHAIN=build.keychain
           security create-keychain -p "" "$KEYCHAIN"
           security default-keychain -s "$KEYCHAIN"
           security unlock-keychain -p "" "$KEYCHAIN"
           security set-keychain-settings -lut 7200 "$KEYCHAIN"
           
-          # Import p12
-          echo "$CERT_P12_BASE64" | base64 --decode > /tmp/cert.p12
-          security import /tmp/cert.p12 -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
+          # Decode files robustly (avoid trailing newline)
+          printf %s "$CERT_P12_BASE64" | base64 --decode > /tmp/cert.p12
+          printf %s "$MOBILEPROVISION_BASE64" | base64 --decode > /tmp/profile.mobileprovision
+          
+          # Quick integrity + password check BEFORE importing into keychain
+          if command -v openssl >/dev/null 2>&1; then
+            if [ -n "${P12_PASSWORD-}" ]; then
+              # If password set, validate it
+              if ! openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD}" -nokeys -info >/dev/null 2>&1; then
+                echo "ERROR: The provided P12 password is incorrect or the file is corrupt."
+                exit 1
+              fi
+            else
+              # No password case
+              if ! openssl pkcs12 -in /tmp/cert.p12 -passin pass: -nokeys -info >/dev/null 2>&1; then
+                echo "ERROR: P12 appears to require a password, but none was provided."
+                echo "Set P12_PASSWORD in Codemagic, or re-export the .p12 with no password."
+                exit 1
+              fi
+            fi
+          fi
+          
+          # Import p12 (works with empty or non-empty password)
+          security import /tmp/cert.p12 -k "$KEYCHAIN" -P "${P12_PASSWORD-}" \
+            -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           
           # Install provisioning profile
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "$MOBILEPROVISION_BASE64" | base64 --decode > /tmp/profile.mobileprovision
+          PROFILE_PLIST=$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$PROFILE_PLIST")
+          PROFILE_NAME_SAFE=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$PROFILE_PLIST")
           
-          # Extract UUID from profile to filename
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)" 2>/dev/null)
           : "${PROFILE_UUID:?Failed to parse profile UUID}"
+          
           cp /tmp/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           
-          # Persist name/uuid for later steps
-          PROFILE_NAME_SAFE=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)" 2>/dev/null || true)
-          : "${PROFILE_NAME:?missing PROFILE_NAME}"
-          echo "${PROFILE_NAME_SAFE:-$PROFILE_NAME}" > /tmp/profile_name.txt
+          # Use PROFILE_NAME from env var if provided, otherwise use name from profile
+          if [ -n "${PROFILE_NAME-}" ]; then
+            echo "$PROFILE_NAME" > /tmp/profile_name.txt
+          else
+            echo "${PROFILE_NAME_SAFE:-}" > /tmp/profile_name.txt
+          fi
           echo "$PROFILE_UUID" > /tmp/profile_uuid.txt
           
           echo "✓ Certificate imported and profile installed ($PROFILE_UUID)"
