@@ -267,19 +267,14 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :method app-store-connect" ExportOptions.processed.plist || \
             /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
           
-          # Keep teamID for clarity
-          if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
-            /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" ExportOptions.processed.plist
-          else
-            /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
-          fi
+          # Keep teamID for clarity (harmless)
+          /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
           
-          # IMPORTANT: Provide ONLY the app bundle mapping. Do NOT include frameworks.
+          # Ensure NO provisioningProfiles key exists (prevents re-signing of frameworks)
           /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ExportOptions.processed.plist
           
-          # DO NOT set signingStyle; letting Xcode decide avoids re-signing frameworks
+          # Ensure NO signingStyle key exists (also triggers re-sign if present)
           /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
           
           # Safe defaults
@@ -289,6 +284,12 @@ workflows:
             /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.processed.plist
           /usr/libexec/PlistBuddy -c "Set :destination export" ExportOptions.processed.plist || \
             /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
+          
+          # Assert that provisioningProfiles is truly absent
+          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist >/dev/null 2>&1; then
+            echo "ERROR: provisioningProfiles still present in ExportOptions.processed.plist"
+            exit 1
+          fi
           
           EXPORT_PATH="$CM_BUILD_DIR/ipa"
           mkdir -p "$EXPORT_PATH"
