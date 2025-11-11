@@ -332,23 +332,28 @@ workflows:
           /usr/libexec/PlistBuddy -c "Delete :destination" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
           
-          # Assert we truly removed any signing hints that trigger re-sign
-          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist >/dev/null 2>&1; then
-            echo "ERROR: provisioningProfiles still present in ExportOptions.processed.plist"
-            exit 1
-          fi
-          if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
-            echo "ERROR: teamID still present in ExportOptions.processed.plist"
-            exit 1
-          fi
-          
           EXPORT_PATH="$CM_BUILD_DIR/ipa"
           mkdir -p "$EXPORT_PATH"
           
           echo "Export options file: ExportOptions.processed.plist"
           echo "Export options content:"
-          cat ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Print" ExportOptions.processed.plist
           echo ""
+          
+          # Final guards to ensure no stale signing hints sneak back in
+          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist >/dev/null 2>&1; then
+            echo "ERROR: provisioningProfiles key must be absent at export"
+            exit 1
+          fi
+          if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
+            echo "ERROR: teamID key must be absent at export"
+            exit 1
+          fi
+          SIGNING_STYLE=$(/usr/libexec/PlistBuddy -c "Print :signingStyle" ExportOptions.processed.plist 2>/dev/null || echo "")
+          if [ "$SIGNING_STYLE" != "automatic" ]; then
+            echo "ERROR: signingStyle must be 'automatic' at export (found: '$SIGNING_STYLE')"
+            exit 1
+          fi
           
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
@@ -358,9 +363,7 @@ workflows:
             2>&1 | tee /tmp/export.log || {
             echo ""
             echo "=== IPA EXPORT FAILED ==="
-            echo ""
-            echo "Error details from export log:"
-            tail -50 /tmp/export.log
+            tail -200 /tmp/export.log
             echo ""
             exit 1
           }
