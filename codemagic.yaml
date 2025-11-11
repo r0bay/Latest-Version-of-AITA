@@ -58,10 +58,22 @@ workflows:
           printf %s "$CERT_P12_BASE64"        | strip_wrap_quotes | b64_decode > /tmp/cert.p12
           printf %s "$MOBILEPROVISION_BASE64" | strip_wrap_quotes | b64_decode > /tmp/profile.mobileprovision
           
+          # Hard hash assertion to prevent stale secrets
+          EXPECTED_P12_SHA256="a301c8c8988c2c2cbc2ef72ab2cfb96b4e5deae6ae37725b0176dcb086b158f2"
+          ACTUAL_SHA256="$(shasum -a 256 /tmp/cert.p12 2>/dev/null | awk '{print $1}' || echo unknown)"
+          
           echo "=== Certificate Debug Info ==="
           echo "P12 file size: $(stat -f%z /tmp/cert.p12 2>/dev/null || stat -c%s /tmp/cert.p12 2>/dev/null || wc -c < /tmp/cert.p12) bytes"
-          echo "P12 SHA256: $(shasum -a 256 /tmp/cert.p12 2>/dev/null | awk '{print $1}' || echo unknown)"
+          echo "ASSERT p12 SHA256: $ACTUAL_SHA256"
           echo "P12_PASSWORD length: ${#P12_PASSWORD_CLEAN}"
+          
+          # Case-insensitive comparison (convert both to lowercase)
+          if [ "$(echo "$ACTUAL_SHA256" | tr '[:upper:]' '[:lower:]')" != "$(echo "$EXPECTED_P12_SHA256" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "ERROR: Codemagic is not using the expected certificate. Update CERT_P12_BASE64."
+            echo "Expected: $EXPECTED_P12_SHA256"
+            echo "Actual:   $ACTUAL_SHA256"
+            exit 1
+          fi
           
           # Pre-verify with OpenSSL using the SAME password
           if ! openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD_CLEAN}" -nokeys -info >/dev/null 2>&1 \
