@@ -157,6 +157,40 @@ workflows:
           
           cd ../..
       
+      - name: Auto-bump Build Number
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          
+          # Use a monotonically increasing build number. Prefer CI run/build number if available.
+          BUILD_NUM="${CM_BUILD_ID:-$(date +%Y%m%d%H%M)}"
+          
+          # Point to the app's Info.plist inside the iOS project
+          PLIST="ios/App/App/Info.plist"
+          
+          # Verify plist exists
+          if [ ! -f "$PLIST" ]; then
+            echo "ERROR: Info.plist not found at $PLIST"
+            exit 1
+          fi
+          
+          # Get current build number for logging
+          CURRENT_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST" 2>/dev/null || echo "(not set)")
+          echo "Current CFBundleVersion: $CURRENT_BUILD"
+          
+          # Update CFBundleVersion (build) only. Do NOT touch CFBundleShortVersionString (marketing version).
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUM" "$PLIST"
+          
+          # Verify the update
+          VERIFIED_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")
+          if [ "$VERIFIED_BUILD" != "$BUILD_NUM" ]; then
+            echo "ERROR: Failed to update CFBundleVersion. Expected $BUILD_NUM, got $VERIFIED_BUILD"
+            exit 1
+          fi
+          
+          echo "✓ Set CFBundleVersion to $BUILD_NUM (was: $CURRENT_BUILD)"
+      
       - name: Build Archive
         script: |
           set -euo pipefail
