@@ -99,6 +99,27 @@ workflows:
           : "${PROFILE_UUID:?Failed to parse profile UUID}"
           cp /tmp/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           
+          # === BEGIN: Provisioning profile facts (export for later steps) ===
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$PROFILE_PLIST")
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' /dev/stdin <<<"$PROFILE_PLIST")
+          APP_ID_FULL=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<<"$PROFILE_PLIST")
+          
+          # Derive bundle id from application-identifier (TEAMID.bundleid)
+          BUNDLE_ID="${APP_ID_FULL#${TEAM_ID}.}"
+          
+          echo "Profile Name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Team ID     : $TEAM_ID"
+          echo "App ID Full : $APP_ID_FULL"
+          echo "Bundle ID   : $BUNDLE_ID"
+          
+          # Export to Codemagic env for subsequent steps
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$CM_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$CM_ENV"
+          echo "TEAM_ID=$TEAM_ID"           >> "$CM_ENV"
+          echo "BUNDLE_ID=$BUNDLE_ID"       >> "$CM_ENV"
+          # === END: Provisioning profile facts ===
+          
           echo "${PROFILE_NAME:-${PROFILE_NAME_SAFE:-}}" > /tmp/profile_name.txt
           echo "$PROFILE_UUID" > /tmp/profile_uuid.txt
           
@@ -137,23 +158,26 @@ workflows:
           
           : "${TEAM_ID:?TEAM_ID is not set}"
           : "${BUNDLE_ID:?BUNDLE_ID is not set}"
+          : "${PROFILE_UUID:?PROFILE_UUID is not set}"
           
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           
           echo "=== Building Archive ==="
           echo "Bundle ID: $BUNDLE_ID"
           echo "Team ID: $TEAM_ID"
+          echo "Profile UUID: $PROFILE_UUID"
           echo "Archive Path: $ARCHIVE_PATH"
           
-          xcodebuild archive \
-            -workspace App.xcworkspace \
+          xcodebuild -workspace App.xcworkspace \
             -scheme App \
-            -archivePath "$ARCHIVE_PATH" \
             -configuration Release \
+            -archivePath "$ARCHIVE_PATH" \
             -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            2>&1 | tee /tmp/archive_build.log || {
+            PROVISIONING_PROFILE="$PROFILE_UUID" \
+            archive 2>&1 | tee /tmp/archive_build.log || {
             echo ""
             echo "=== ARCHIVE BUILD FAILED ==="
             echo ""
@@ -178,9 +202,7 @@ workflows:
           
           : "${TEAM_ID:?TEAM_ID is not set}"
           : "${BUNDLE_ID:?BUNDLE_ID is not set}"
-          
-          PROFILE_NAME=$(cat /tmp/profile_name.txt 2>/dev/null || echo "")
-          : "${PROFILE_NAME:?PROFILE_NAME is not set (ensure profile install step wrote it)}"
+          : "${PROFILE_NAME:?PROFILE_NAME is not set (ensure profile install step exported it)}"
           
           ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
           [ -d "$ARCHIVE_PATH" ] || { echo "ERROR: Archive not found at $ARCHIVE_PATH"; exit 1; }
