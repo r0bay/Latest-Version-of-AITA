@@ -350,10 +350,10 @@ workflows:
         script: |
           set -euo pipefail
           
-          IPA_FILE=$(find "$CM_BUILD_DIR/ipa" -name "*.ipa" -type f | head -1 || true)
+          IPA_FILE="$CM_BUILD_DIR/ipa/App.ipa"
           
-          if [ -z "$IPA_FILE" ]; then
-            echo "ERROR: IPA file not found in $CM_BUILD_DIR/ipa"
+          if [ ! -f "$IPA_FILE" ]; then
+            echo "ERROR: IPA file not found at $IPA_FILE"
             echo "IPA export must have failed in previous step"
             exit 1
           fi
