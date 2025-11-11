@@ -401,6 +401,53 @@ workflows:
             echo "=== IPA EXPORT FAILED ==="
             tail -200 /tmp/export.log
             echo ""
+            
+            # If export failed above, collect deep diagnostics before exiting
+            echo ""
+            echo "=== Xcode Distribution Logs ==="
+            LOG_ROOT="$(ls -1td /var/folders/*/*/*/*/*/*/App_*.xcdistributionlogs 2>/dev/null | head -1 || true)"
+            if [ -z "$LOG_ROOT" ] || [ ! -d "$LOG_ROOT" ]; then
+              LOG_ROOT="$(ls -1td /var/folders/*/*/*/T/App_*.xcdistributionlogs 2>/dev/null | head -1 || true)"
+            fi
+            
+            echo "Log root: ${LOG_ROOT:-<none found>}"
+            if [ -n "$LOG_ROOT" ] && [ -d "$LOG_ROOT" ]; then
+              echo "--- Directory tree ---"
+              find "$LOG_ROOT" -maxdepth 2 -type f -print
+              
+              echo "--- DistributionSummary.plist ---"
+              /usr/libexec/PlistBuddy -c "Print" "$LOG_ROOT/DistributionSummary.plist" 2>/dev/null || true
+              
+              echo "--- Packaging.log (tail) ---"
+              tail -200 "$LOG_ROOT/Packaging.log" 2>/dev/null || true
+              
+              echo "--- ExportOptions.plist actually used by xcodebuild ---"
+              if [ -f "$LOG_ROOT/ExportOptions.plist" ]; then
+                /usr/libexec/PlistBuddy -c "Print" "$LOG_ROOT/ExportOptions.plist" || true
+              fi
+            fi
+            
+            echo ""
+            echo "=== Archive contents (signing sanity) ==="
+            APP_DIR="$ARCHIVE_ROOT/Products/Applications"
+            APP_PATH="$(find "$APP_DIR" -maxdepth 1 -type d -name '*.app' -print -quit || true)"
+            echo "Resolved app: ${APP_PATH:-<none>}"
+            if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
+              echo "--- codesign -dvv ---"
+              codesign -dvv "$APP_PATH" 2>&1 || true
+              echo "--- entitlements ---"
+              codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true
+              echo "--- embedded.mobileprovision (team + app id) ---"
+              if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
+                /usr/bin/security cms -D -i "$APP_PATH/embedded.mobileprovision" > /tmp/emb.plist 2>/dev/null || true
+                /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.team-identifier" /tmp/emb.plist 2>/dev/null || true
+                /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /tmp/emb.plist 2>/dev/null || true
+              else
+                echo "embedded.mobileprovision not found in app bundle"
+              fi
+            fi
+            
+            # Finally exit with failure to preserve CI status
             exit 1
           }
           
