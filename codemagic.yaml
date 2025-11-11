@@ -32,21 +32,21 @@ workflows:
           
           : "${CERT_P12_BASE64:?missing CERT_P12_BASE64}"
           : "${MOBILEPROVISION_BASE64:?missing MOBILEPROVISION_BASE64}"
-          # Optional: P12_PASSWORD, PROFILE_NAME
+          # Optional: PROFILE_NAME; Required now: P12_PASSWORD (non-empty)
           
           KEYCHAIN=build.keychain
           
-          b64_decode() {
-            if base64 --help >/dev/null 2>&1; then base64 --decode; else base64 -D; fi
-          }
-          
+          b64_decode() { if base64 --help >/dev/null 2>&1; then base64 --decode; else base64 -D; fi; }
           strip_wrap_quotes() { sed 's/^"//; s/"$//'; }
           trim_pw() { tr -d '\r' | sed 's/^[[:space:]]\+//; s/[[:space:]]\+$//'; }
           
-          # Normalize password (if present)
+          # Normalize password
           P12_PASSWORD_RAW="${P12_PASSWORD-}"
           P12_PASSWORD_CLEAN="$(printf %s "$P12_PASSWORD_RAW" | strip_wrap_quotes | trim_pw)"
-          export P12_PASSWORD_CLEAN
+          if [ -z "$P12_PASSWORD_CLEAN" ]; then
+            echo "ERROR: P12_PASSWORD is required for this certificate."
+            exit 1
+          fi
           
           # Keychain
           security create-keychain -p "" "$KEYCHAIN"
@@ -58,68 +58,28 @@ workflows:
           printf %s "$CERT_P12_BASE64"        | strip_wrap_quotes | b64_decode > /tmp/cert.p12
           printf %s "$MOBILEPROVISION_BASE64" | strip_wrap_quotes | b64_decode > /tmp/profile.mobileprovision
           
-          # --- Debug: certificate sanity ---
           echo "=== Certificate Debug Info ==="
-          # Portable file size
           echo "P12 file size: $(stat -f%z /tmp/cert.p12 2>/dev/null || stat -c%s /tmp/cert.p12 2>/dev/null || wc -c < /tmp/cert.p12) bytes"
           echo "P12 SHA256: $(shasum -a 256 /tmp/cert.p12 2>/dev/null | awk '{print $1}' || echo unknown)"
-          echo "P12_PASSWORD var set (pre-trim): $([ -n "${P12_PASSWORD_RAW-}" ] && echo YES || echo NO)"
-          echo "P12_PASSWORD_CLEAN length (post-trim): ${#P12_PASSWORD_CLEAN}"
+          echo "P12_PASSWORD length: ${#P12_PASSWORD_CLEAN}"
           
-          if [ ! -s /tmp/cert.p12 ]; then
-            echo "ERROR: /tmp/cert.p12 is empty → CERT_P12_BASE64 is wrong or double-encoded."
+          # Pre-verify with OpenSSL using the SAME password
+          if ! openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD_CLEAN}" -nokeys -info >/dev/null 2>&1 \
+             && ! openssl pkcs12 -legacy -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD_CLEAN}" -nokeys -info >/dev/null 2>&1; then
+            echo "ERROR: OpenSSL cannot open p12 with the provided password (wrong password or corrupt p12)."
             exit 1
           fi
+          echo "OpenSSL check: p12 verified WITH password."
           
-          # --- Verify p12 BEFORE import using the same branch you will import with ---
-          OPENSSL_OK=0
-          if command -v openssl >/dev/null 2>&1; then
-            if [ -n "$P12_PASSWORD_CLEAN" ]; then
-              if openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD_CLEAN}" -nokeys -info >/dev/null 2>&1 \
-                || openssl pkcs12 -legacy -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD_CLEAN}" -nokeys -info >/dev/null 2>&1
-              then
-                echo "OpenSSL check: p12 verified WITH password."
-                OPENSSL_OK=1
-              else
-                echo "ERROR: OpenSSL could not open p12 with provided password (wrong password or corrupt p12)."
-                OPENSSL_OK=0
-              fi
-            else
-              if openssl pkcs12 -in /tmp/cert.p12 -passin pass: -nokeys -info >/dev/null 2>&1 \
-                || openssl pkcs12 -legacy -in /tmp/cert.p12 -passin pass: -nokeys -info >/dev/null 2>&1
-              then
-                echo "OpenSSL check: p12 verified with NO password."
-                OPENSSL_OK=1
-              else
-                echo "NOTE: OpenSSL indicates this p12 REQUIRES a password (none provided) or is corrupt."
-                OPENSSL_OK=0
-              fi
-            fi
-          else
-            echo "WARN: openssl not present; skipping pre-import verify."
-            OPENSSL_OK=1
-          fi
-          
-          if [ "$OPENSSL_OK" -ne 1 ]; then
-            echo "Failing early to avoid misleading 'MAC verification failed' from security import."
-            exit 1
-          fi
-          
-          # --- Import into keychain ---
-          if [ -n "$P12_PASSWORD_CLEAN" ]; then
-            echo "Import path: WITH password"
-            security import /tmp/cert.p12 -k "$KEYCHAIN" -f pkcs12 -P "$P12_PASSWORD_CLEAN" \
-              -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
-          else
-            echo "Import path: NO password (omitting -P entirely)"
-            security import /tmp/cert.p12 -k "$KEYCHAIN" -f pkcs12 \
-              -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
-          fi
+          # Import (WITH password)
+          echo "Import path: WITH password"
+          security import /tmp/cert.p12 -k "$KEYCHAIN" -f pkcs12 -P "$P12_PASSWORD_CLEAN" \
+            -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
           
           # Allow tools to access the key non-interactively
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           
-          # Provisioning profile
+          # Install provisioning profile
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           PROFILE_PLIST=$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$PROFILE_PLIST")
