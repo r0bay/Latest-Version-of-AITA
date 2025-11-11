@@ -12,10 +12,13 @@ workflows:
         TEAM_ID: US86BZ3GH5
         # App Store Connect API credentials for TestFlight upload via iTMSTransporter
         # Set these in Codemagic UI: Teams → Environment variables
-        # ASC_KEY_ID: Your App Store Connect API Key ID (e.g., ABCDE12345)
-        # ASC_ISSUER_ID: Your Issuer ID (UUID from App Store Connect)
-        # ASC_API_KEY_P8: Upload as Secure file in Codemagic (upload .p8 file)
-        # Codemagic automatically exposes secure files as PATH variables (e.g., ASC_API_KEY_P8_PATH)
+        # ASC_KEY_ID: Your App Store Connect API Key ID (e.g., ABCDE12345) - REQUIRED
+        # ASC_ISSUER_ID: Your Issuer ID (UUID from App Store Connect) - REQUIRED
+        # Provide ONE of the following for the .p8 private key:
+        #   - ASC_API_KEY_P8_PATH: Secure file path (if uploaded as Secure file in Codemagic)
+        #   - ASC_API_KEY_P8: Raw .p8 file contents (paste entire file, mark as Secret) - RECOMMENDED
+        #   - ASC_API_KEY_P8_BASE64: Base64 encoded .p8 file contents (mark as Secret)
+        # Recommended: Use ASC_API_KEY_P8 (paste raw .p8 contents as a Secret variable)
       groups:
         - ios_signing  # iOS certificate and profile secrets (CERT_P12_BASE64, P12_PASSWORD, MOBILEPROVISION_BASE64, PROFILE_NAME)
     scripts:
@@ -396,49 +399,63 @@ workflows:
           
           : "${ASC_KEY_ID:?ASC_KEY_ID missing}"
           : "${ASC_ISSUER_ID:?ASC_ISSUER_ID missing}"
-          : "${ASC_API_KEY_P8_PATH:?ASC_API_KEY_P8_PATH missing}"
           
+          # Resolve the .p8 private key via one of:
+          # 1) ASC_API_KEY_P8_PATH (secure file path)
+          # 2) ASC_API_KEY_P8      (raw .p8 contents pasted as a secret var)
+          # 3) ASC_API_KEY_P8_BASE64 (base64 of the .p8)
+          TMP_KEY_DIR="$HOME/.private_keys"
+          mkdir -p "$TMP_KEY_DIR"
+          DEST_KEY="$TMP_KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          
+          if [ -n "${ASC_API_KEY_P8_PATH-}" ] && [ -f "$ASC_API_KEY_P8_PATH" ]; then
+            echo "Using ASC_API_KEY_P8_PATH: $ASC_API_KEY_P8_PATH"
+            cp -f "$ASC_API_KEY_P8_PATH" "$DEST_KEY"
+          elif [ -n "${ASC_API_KEY_P8-}" ]; then
+            echo "Using ASC_API_KEY_P8 (raw contents)"
+            printf "%s" "$ASC_API_KEY_P8" > "$DEST_KEY"
+          elif [ -n "${ASC_API_KEY_P8_BASE64-}" ]; then
+            echo "Using ASC_API_KEY_P8_BASE64 (base64 encoded)"
+            printf "%s" "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$DEST_KEY" || \
+            printf "%s" "$ASC_API_KEY_P8_BASE64" | base64 -D > "$DEST_KEY"
+          else
+            echo "ERROR: Provide one of ASC_API_KEY_P8_PATH (secure file), ASC_API_KEY_P8 (raw), or ASC_API_KEY_P8_BASE64."
+            echo ""
+            echo "To set up in Codemagic:"
+            echo "1. Go to Teams → Environment variables"
+            echo "2. Add variable: ASC_API_KEY_P8 (mark as Secret)"
+            echo "3. Value: Paste entire .p8 file contents (including BEGIN/END lines)"
+            echo "4. Group: ios_signing (or your signing group)"
+            exit 1
+          fi
+          
+          chmod 600 "$DEST_KEY"
+          export API_PRIVATE_KEYS_DIR="$TMP_KEY_DIR"
+          
+          echo "Using key file: $DEST_KEY"
+          echo "Key file size: $(stat -f%z "$DEST_KEY" 2>/dev/null || stat -c%s "$DEST_KEY" 2>/dev/null || wc -c < "$DEST_KEY") bytes"
+          echo ""
+          
+          # Optional preflight: print identifiers
           echo "=== Pre-flight IPA Check ==="
           TMP_DIR="$(mktemp -d)"
           unzip -qq "$IPA_FILE" -d "$TMP_DIR"
           APP_PLIST="$(/bin/ls -1 "$TMP_DIR/Payload/"*.app/Info.plist | head -1)"
-          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST")
-          VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST")
-          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST")
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST" 2>/dev/null || echo "(unknown)")
+          VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST" 2>/dev/null || echo "(unknown)")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST" 2>/dev/null || echo "(unknown)")
           echo "IPA identifiers → Bundle: $BUNDLE_ID  Version: $VER  Build: $BUILD"
           rm -rf "$TMP_DIR"
           echo ""
           
-          echo "=== Preparing iTMSTransporter credentials ==="
-          KEY_ID="$ASC_KEY_ID"
-          ISSUER_ID="$ASC_ISSUER_ID"
-          P8_PATH="$ASC_API_KEY_P8_PATH"
-          echo "Key ID: $KEY_ID"
-          echo "Issuer ID: $ISSUER_ID"
-          echo "P8 Path: $P8_PATH"
-          
-          if [ ! -f "$P8_PATH" ]; then
-            echo "ERROR: P8 key file not found at $P8_PATH"
-            echo "Ensure ASC_API_KEY_P8 is uploaded as a Secure file in Codemagic"
-            echo "Codemagic automatically exposes secure files as PATH environment variables"
-            exit 1
-          fi
-          
-          # Verify the key file is readable
-          if [ ! -r "$P8_PATH" ]; then
-            echo "ERROR: P8 key file is not readable at $P8_PATH"
-            exit 1
-          fi
-          echo "P8 key file verified: $(ls -lh "$P8_PATH" | awk '{print $5}')"
-          echo ""
-          
+          # Upload
           echo "=== Uploading to TestFlight via iTMSTransporter ==="
           set -o pipefail
           xcrun iTMSTransporter \
             -m upload \
             -assetFile "$IPA_FILE" \
-            -apiKey "$KEY_ID" \
-            -apiIssuer "$ISSUER_ID" \
+            -apiKey "$ASC_KEY_ID" \
+            -apiIssuer "$ASC_ISSUER_ID" \
             -v informational \
             2>&1 | tee /tmp/transporter.log || {
             echo ""
@@ -457,8 +474,7 @@ workflows:
           }
           
           echo ""
-          echo "✓ Upload request sent. Parsing Transporter summary…"
-          if grep -E "The package .* was uploaded successfully" -i /tmp/transporter.log >/dev/null; then
+          if grep -Ei "was uploaded successfully" /tmp/transporter.log >/dev/null; then
             echo "✓ Transporter reports success."
             echo "Check App Store Connect for processing status"
           else
@@ -468,6 +484,7 @@ workflows:
             echo ""
             echo "The upload may have succeeded. Check App Store Connect for the build."
             echo "If the build appears, the upload was successful despite the message."
+            exit 1
           fi
     
     artifacts:
