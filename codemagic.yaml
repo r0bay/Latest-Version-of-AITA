@@ -346,67 +346,81 @@ workflows:
           echo "✓ IPA exported successfully: $IPA_FILE"
           ls -lh "$IPA_FILE"
       
-      - name: Upload to TestFlight (Optional)
+      - name: Publish to TestFlight
         script: |
+          #!/usr/bin/env bash
           set -euo pipefail
           
           IPA_FILE="$CM_BUILD_DIR/ipa/App.ipa"
+          [ -f "$IPA_FILE" ] || { echo "ERROR: IPA not found at $IPA_FILE"; exit 1; }
           
-          if [ ! -f "$IPA_FILE" ]; then
-            echo "ERROR: IPA file not found at $IPA_FILE"
-            echo "IPA export must have failed in previous step"
+          : "${ASC_KEY_ID:?ASC_KEY_ID missing}"
+          : "${ASC_ISSUER_ID:?ASC_ISSUER_ID missing}"
+          : "${ASC_API_KEY_P8_PATH:?ASC_API_KEY_P8_PATH missing}"
+          
+          echo "=== Pre-flight IPA Check ==="
+          TMP_DIR="$(mktemp -d)"
+          unzip -qq "$IPA_FILE" -d "$TMP_DIR"
+          APP_PLIST="$(/bin/ls -1 "$TMP_DIR/Payload/"*.app/Info.plist | head -1)"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST")
+          VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST")
+          echo "IPA identifiers → Bundle: $BUNDLE_ID  Version: $VER  Build: $BUILD"
+          rm -rf "$TMP_DIR"
+          echo ""
+          
+          echo "=== Preparing iTMSTransporter credentials ==="
+          KEY_ID="$ASC_KEY_ID"
+          ISSUER_ID="$ASC_ISSUER_ID"
+          P8_PATH="$ASC_API_KEY_P8_PATH"
+          echo "Key ID: $KEY_ID"
+          echo "Issuer ID: $ISSUER_ID"
+          echo "P8 Path: $P8_PATH"
+          
+          if [ ! -f "$P8_PATH" ]; then
+            echo "ERROR: P8 key file not found at $P8_PATH"
+            echo "Ensure ASC_API_KEY_P8 is uploaded as a Secure file in Codemagic"
             exit 1
           fi
+          echo ""
           
-          echo "=== TestFlight Upload (Optional) ==="
-          
-          # Check if App Store Connect API credentials are available
-          if [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ]; then
-            echo "⚠ App Store Connect API credentials not found"
-            echo "  ASC_KEY_ID: ${ASC_KEY_ID:-not set}"
-            echo "  ASC_ISSUER_ID: ${ASC_ISSUER_ID:-not set}"
+          echo "=== Uploading to TestFlight via iTMSTransporter ==="
+          set -o pipefail
+          xcrun iTMSTransporter \
+            -m upload \
+            -assetFile "$IPA_FILE" \
+            -apiKey "$KEY_ID" \
+            -apiIssuer "$ISSUER_ID" \
+            -v informational \
+            2>&1 | tee /tmp/transporter.log || {
             echo ""
-            echo "Skipping TestFlight upload."
-            echo "The IPA file is available as a Codemagic artifact for manual upload."
-            echo ""
-            echo "To enable automatic TestFlight upload:"
-            echo "1. Create an App Store Connect API key in Apple Developer Portal"
-            echo "2. Add ASC_KEY_ID and ASC_ISSUER_ID to Codemagic environment variables"
-            echo "3. Or set up the apple_credentials group in Codemagic"
-            echo ""
-            echo "IPA file location: $IPA_FILE"
-            exit 0
-          fi
-          
-          echo "Uploading IPA to TestFlight..."
-          echo "IPA: $IPA_FILE"
-          echo "Key ID: $ASC_KEY_ID"
-          echo "Issuer ID: $ASC_ISSUER_ID"
-          
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA_FILE" \
-            --apiKey "$ASC_KEY_ID" \
-            --apiIssuer "$ASC_ISSUER_ID" \
-            2>&1 | tee /tmp/upload.log || {
-            echo ""
-            echo "⚠ TestFlight upload failed"
+            echo "⚠ iTMSTransporter upload failed"
             echo ""
             echo "Error details:"
-            tail -20 /tmp/upload.log
+            tail -200 /tmp/transporter.log
             echo ""
-            echo "The IPA file is still available as a Codemagic artifact."
-            echo "You can upload it manually to App Store Connect:"
-            echo "1. Download the IPA from Codemagic artifacts"
-            echo "2. Go to https://appstoreconnect.apple.com"
-            echo "3. Navigate to your app → TestFlight"
-            echo "4. Upload the IPA manually"
+            echo "Common issues:"
+            echo "- 'No suitable application record': Create the app in App Store Connect with bundle ID: $BUNDLE_ID"
+            echo "- 'This bundle is identical': Bump CFBundleVersion (build number) and rebuild"
+            echo "- API key permissions: Ensure key has App Manager or Admin role"
             echo ""
-            exit 0
+            echo "The IPA file is still available as a Codemagic artifact for manual upload."
+            exit 1
           }
           
-          echo "✓ IPA uploaded to TestFlight successfully"
-          echo "Check App Store Connect for processing status"
+          echo ""
+          echo "✓ Upload request sent. Parsing Transporter summary…"
+          if grep -E "The package .* was uploaded successfully" -i /tmp/transporter.log >/dev/null; then
+            echo "✓ Transporter reports success."
+            echo "Check App Store Connect for processing status"
+          else
+            echo "⚠ Transporter did not report a clean success."
+            echo "Upload log:"
+            tail -200 /tmp/transporter.log
+            echo ""
+            echo "The upload may have succeeded. Check App Store Connect for the build."
+            echo "If the build appears, the upload was successful despite the message."
+          fi
     
     artifacts:
       - build/ipa/*.ipa
