@@ -215,6 +215,10 @@ workflows:
           fi
           
           echo "✓ Archive created successfully at $ARCHIVE_PATH"
+          
+          # Export ARCHIVE_PATH for subsequent steps
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$CM_ENV"
+          
           cd ../..
       
       - name: Verify Archive Signing
@@ -224,25 +228,42 @@ workflows:
           
           : "${TEAM_ID:?TEAM_ID is not set}"
           
-          # Locate the .app inside the archive robustly
-          ARCHIVE_ROOT=$(find "$HOME/Library/Developer/Xcode/Archives" -name "App-*.xcarchive" -type d | sort -r | head -1)
-          if [ -z "$ARCHIVE_ROOT" ] || [ ! -d "$ARCHIVE_ROOT" ]; then
-            echo "ERROR: Archive not found"
+          # Prefer ARCHIVE_PATH exported by the archive step; fall back to latest
+          if [ -n "${ARCHIVE_PATH-}" ] && [ -d "$ARCHIVE_PATH" ]; then
+            ARCHIVE_ROOT="$ARCHIVE_PATH"
+          else
+            ARCHIVE_ROOT="$(find "$HOME/Library/Developer/Xcode/Archives" -type d -name "*.xcarchive" -print0 \
+              | xargs -0 ls -1td \
+              | head -1 || true)"
+          fi
+          
+          if [ -z "${ARCHIVE_ROOT:-}" ] || [ ! -d "$ARCHIVE_ROOT" ]; then
+            echo "ERROR: Archive not found under $HOME/Library/Developer/Xcode/Archives"
             exit 1
           fi
           
+          echo "Using archive: $ARCHIVE_ROOT"
+          
           APP_DIR="$ARCHIVE_ROOT/Products/Applications"
-          APP_PATH="$(/bin/ls -1 "$APP_DIR"/*.app | head -1)"
+          
+          # Robustly locate the first .app (handles any product name)
+          APP_PATH="$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit || true)"
+          
           if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: .app not found inside archive at: $APP_DIR"
+            echo "ERROR: No .app found inside: $APP_DIR"
+            echo "Contents of Applications directory:"
+            ls -la "$APP_DIR" || true
+            echo "Archive tree (one level):"
+            find "$ARCHIVE_ROOT/Products" -maxdepth 2 -print
             exit 1
           fi
+          
           echo "Verifying archive at: $APP_PATH"
           
           # 1) Embedded provisioning profile must exist
           if [ ! -f "$APP_PATH/embedded.mobileprovision" ]; then
             echo "ERROR: embedded.mobileprovision is missing inside the archived app."
-            echo "Ensure the archive step embeds the profile (we copy it during archive)."
+            echo "Ensure the archive step embeds the profile (copy $PROFILE_UUID.mobileprovision before export)."
             exit 1
           fi
           
