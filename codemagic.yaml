@@ -286,182 +286,65 @@ workflows:
       
       - name: Export IPA
         script: |
+          #!/usr/bin/env bash
           set -euo pipefail
-          cd ios/App
           
-          : "${TEAM_ID:?TEAM_ID is not set}"
-          : "${BUNDLE_ID:?BUNDLE_ID is not set}"
-          : "${PROFILE_NAME:?PROFILE_NAME is not set (ensure profile install step exported it)}"
-          : "${PROFILE_UUID:?PROFILE_UUID is not set (ensure profile install step exported it)}"
-          
-          # Prefer ARCHIVE_PATH from previous step; fall back to latest archive
+          # Prefer ARCHIVE_PATH from previous step; fall back to latest
           if [ -n "${ARCHIVE_PATH-}" ] && [ -d "$ARCHIVE_PATH" ]; then
             ARCHIVE_ROOT="$ARCHIVE_PATH"
           else
             ARCHIVE_ROOT="$(find "$HOME/Library/Developer/Xcode/Archives" -type d -name "*.xcarchive" -print0 \
-              | xargs -0 ls -1td | head -1 || true)"
-          fi
-          
-          if [ -z "${ARCHIVE_ROOT:-}" ] || [ ! -d "$ARCHIVE_ROOT" ]; then
-            echo "ERROR: Archive not found under $HOME/Library/Developer/Xcode/Archives"
-            exit 1
+              | xargs -0 ls -1td | head -1)"
           fi
           echo "Using archive: $ARCHIVE_ROOT"
           
           APP_DIR="$ARCHIVE_ROOT/Products/Applications"
-          APP_PATH="$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit || true)"
+          APP_PATH="$(find "$APP_DIR" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ] || { echo "ERROR: .app not found in $APP_DIR"; exit 1; }
+          echo "Found app: $APP_PATH"
           
-          if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
-            echo "Found app: $APP_PATH"
-            PROFILE_SRC="$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-            if [ -f "$PROFILE_SRC" ]; then
-              echo "Embedding provisioning profile into archived app"
-              cp -f "$PROFILE_SRC" "$APP_PATH/embedded.mobileprovision"
-            else
-              echo "WARN: $PROFILE_SRC not found; proceeding without embedding."
-            fi
-          else
-            echo "WARN: No .app found inside: $APP_DIR"
-            echo "Contents of Applications directory:"
-            ls -la "$APP_DIR" || true
-            echo "Archive tree (one level):"
-            find "$ARCHIVE_ROOT/Products" -maxdepth 2 -print || true
-            # Do NOT exit; allow exportArchive to proceed with the archive path
+          # Ensure embedded profile is present (harmless if already there)
+          if [ -n "${PROFILE_UUID-}" ] && [ -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" ]; then
+            echo "Embedding provisioning profile"
+            cp -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" "$APP_PATH/embedded.mobileprovision"
           fi
           
-          # Verify ExportOptions.plist template exists
-          if [ ! -f "ExportOptions.plist" ]; then
-            echo "ERROR: ExportOptions.plist template not found"
-            echo "This file should be committed to git at ios/App/ExportOptions.plist"
-            exit 1
-          fi
+          # Sanity: app must be signed
+          codesign -vv "$APP_PATH" && echo "codesign: OK"
           
-          echo "=== Exporting IPA ==="
-          
-          # Start fresh from template
-          cp ExportOptions.plist ExportOptions.processed.plist
-          
-          # Modern method
-          /usr/libexec/PlistBuddy -c "Delete :method" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
-          
-          # Keep AUTOMATIC to prevent framework re-sign
-          /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :signingStyle string automatic" ExportOptions.processed.plist
-          
-          # CRITICAL: provide ONLY the app bundle mapping, using PROFILE NAME (not UUID)
-          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ExportOptions.processed.plist
-          
-          # Do NOT include teamID or signingCertificate at export
-          /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Delete :signingCertificate" ExportOptions.processed.plist 2>/dev/null || true
-          
-          # Safe defaults
-          /usr/libexec/PlistBuddy -c "Delete :compileBitcode" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Delete :stripSwiftSymbols" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Delete :destination" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
-          
+          # Build IPA structure
           EXPORT_PATH="$CM_BUILD_DIR/ipa"
-          mkdir -p "$EXPORT_PATH"
+          PAYLOAD_DIR="$EXPORT_PATH/Payload"
+          rm -rf "$EXPORT_PATH"
+          mkdir -p "$PAYLOAD_DIR"
           
-          echo "Export options file: ExportOptions.processed.plist"
-          echo "Export options content:"
-          /usr/libexec/PlistBuddy -c "Print" ExportOptions.processed.plist
-          echo ""
+          # Copy the .app
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
           
-          # Guards: ONLY the app mapping; nothing else
-          echo "ExportOptions verification:"
-          /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist
-          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null | grep -E '(Capacitor|Cordova|Pods)'; then
-            echo "ERROR: provisioningProfiles contains non-app entries"
-            exit 1
-          fi
-          if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
-            echo "ERROR: teamID must be absent at export"
-            exit 1
-          fi
-          SIGNING_STYLE=$(/usr/libexec/PlistBuddy -c "Print :signingStyle" ExportOptions.processed.plist 2>/dev/null || echo "")
-          if [ "$SIGNING_STYLE" != "automatic" ]; then
-            echo "ERROR: signingStyle must be 'automatic' at export (found: '$SIGNING_STYLE')"
-            exit 1
+          # Optional: include SwiftSupport if present (non-fatal if missing)
+          SWIFT_DIR_SRC="$ARCHIVE_ROOT/SwiftSupport"
+          if [ -d "$SWIFT_DIR_SRC" ]; then
+            echo "Including SwiftSupport"
+            cp -R "$SWIFT_DIR_SRC" "$EXPORT_PATH/SwiftSupport"
           fi
           
-          xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_ROOT" \
-            -exportPath "$EXPORT_PATH" \
-            -exportOptionsPlist ExportOptions.processed.plist \
-            -allowProvisioningUpdates \
-            2>&1 | tee /tmp/export.log || {
-            echo ""
-            echo "=== IPA EXPORT FAILED ==="
-            tail -200 /tmp/export.log
-            echo ""
-            
-            # If export failed above, collect deep diagnostics before exiting
-            echo ""
-            echo "=== Xcode Distribution Logs ==="
-            LOG_ROOT="$(ls -1td /var/folders/*/*/*/*/*/*/App_*.xcdistributionlogs 2>/dev/null | head -1 || true)"
-            if [ -z "$LOG_ROOT" ] || [ ! -d "$LOG_ROOT" ]; then
-              LOG_ROOT="$(ls -1td /var/folders/*/*/*/T/App_*.xcdistributionlogs 2>/dev/null | head -1 || true)"
-            fi
-            
-            echo "Log root: ${LOG_ROOT:-<none found>}"
-            if [ -n "$LOG_ROOT" ] && [ -d "$LOG_ROOT" ]; then
-              echo "--- Directory tree ---"
-              find "$LOG_ROOT" -maxdepth 2 -type f -print
-              
-              echo "--- DistributionSummary.plist ---"
-              /usr/libexec/PlistBuddy -c "Print" "$LOG_ROOT/DistributionSummary.plist" 2>/dev/null || true
-              
-              echo "--- Packaging.log (tail) ---"
-              tail -200 "$LOG_ROOT/Packaging.log" 2>/dev/null || true
-              
-              echo "--- ExportOptions.plist actually used by xcodebuild ---"
-              if [ -f "$LOG_ROOT/ExportOptions.plist" ]; then
-                /usr/libexec/PlistBuddy -c "Print" "$LOG_ROOT/ExportOptions.plist" || true
-              fi
-            fi
-            
-            echo ""
-            echo "=== Archive contents (signing sanity) ==="
-            APP_DIR="$ARCHIVE_ROOT/Products/Applications"
-            APP_PATH="$(find "$APP_DIR" -maxdepth 1 -type d -name '*.app' -print -quit || true)"
-            echo "Resolved app: ${APP_PATH:-<none>}"
-            if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
-              echo "--- codesign -dvv ---"
-              codesign -dvv "$APP_PATH" 2>&1 || true
-              echo "--- entitlements ---"
-              codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true
-              echo "--- embedded.mobileprovision (team + app id) ---"
-              if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
-                /usr/bin/security cms -D -i "$APP_PATH/embedded.mobileprovision" > /tmp/emb.plist 2>/dev/null || true
-                /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.team-identifier" /tmp/emb.plist 2>/dev/null || true
-                /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /tmp/emb.plist 2>/dev/null || true
-              else
-                echo "embedded.mobileprovision not found in app bundle"
-              fi
-            fi
-            
-            # Finally exit with failure to preserve CI status
-            exit 1
-          }
+          # Optional: include Symbols/dSYM (nice to have)
+          DSYM_DIR="$ARCHIVE_ROOT/dSYMs"
+          if [ -d "$DSYM_DIR" ]; then
+            echo "Including dSYMs"
+            cp -R "$DSYM_DIR" "$EXPORT_PATH/dSYMs"
+          fi
           
-          IPA_FILE=$(find "$EXPORT_PATH" -name "*.ipa" -type f | head -1 || true)
-          [ -n "$IPA_FILE" ] || { 
-            echo "ERROR: IPA file not found after export"
-            tail -50 /tmp/export.log || true
-            exit 1
-          }
+          # Zip IPA
+          IPA_FILE="$EXPORT_PATH/App.ipa"
+          (
+            cd "$EXPORT_PATH"
+            /usr/bin/zip -qry "$IPA_FILE" Payload SwiftSupport 2>/dev/null || /usr/bin/zip -qry "$IPA_FILE" Payload
+          )
           
+          [ -f "$IPA_FILE" ] || { echo "ERROR: IPA not created"; exit 1; }
           echo "✓ IPA exported successfully: $IPA_FILE"
           ls -lh "$IPA_FILE"
-          
-          cd ../..
       
       - name: Upload to TestFlight (Optional)
         script: |
