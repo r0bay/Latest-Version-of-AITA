@@ -160,32 +160,54 @@ workflows:
           : "${BUNDLE_ID:?BUNDLE_ID is not set}"
           : "${PROFILE_UUID:?PROFILE_UUID is not set}"
           
-          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          KEYCHAIN=build.keychain
           
-          echo "=== Building Archive ==="
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "Team ID: $TEAM_ID"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Archive Path: $ARCHIVE_PATH"
+          echo "Using Team: $TEAM_ID"
+          echo "Using Bundle ID: $BUNDLE_ID"
+          echo "Using Profile UUID: $PROFILE_UUID"
           
-          xcodebuild -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -archivePath "$ARCHIVE_PATH" \
-            -destination "generic/platform=iOS" \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            PROVISIONING_PROFILE="$PROFILE_UUID" \
-            archive 2>&1 | tee /tmp/archive_build.log || {
-            echo ""
-            echo "=== ARCHIVE BUILD FAILED ==="
-            echo ""
-            echo "Error details from build log:"
-            tail -50 /tmp/archive_build.log
-            echo ""
-            exit 1
-          }
+          ARCHIVE_PATH="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)/App-$(date +%H%M).xcarchive"
+          mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          
+          if command -v xcpretty >/dev/null 2>&1; then
+            xcodebuild -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -archivePath "$ARCHIVE_PATH" \
+              -destination "generic/platform=iOS" \
+              CODE_SIGN_STYLE=Manual \
+              DEVELOPMENT_TEAM="$TEAM_ID" \
+              PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+              PROVISIONING_PROFILE="$PROFILE_UUID" \
+              PROVISIONING_PROFILE_SPECIFIER= \
+              OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN" \
+              archive 2>&1 | xcpretty && exit ${PIPESTATUS[0]} || {
+              echo ""
+              echo "=== ARCHIVE BUILD FAILED ==="
+              exit 1
+            }
+          else
+            xcodebuild -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -archivePath "$ARCHIVE_PATH" \
+              -destination "generic/platform=iOS" \
+              CODE_SIGN_STYLE=Manual \
+              DEVELOPMENT_TEAM="$TEAM_ID" \
+              PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+              PROVISIONING_PROFILE="$PROFILE_UUID" \
+              PROVISIONING_PROFILE_SPECIFIER= \
+              OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN" \
+              archive 2>&1 | tee /tmp/archive_build.log || {
+              echo ""
+              echo "=== ARCHIVE BUILD FAILED ==="
+              echo ""
+              echo "Error details from build log:"
+              tail -50 /tmp/archive_build.log
+              echo ""
+              exit 1
+            }
+          fi
           
           if [ ! -d "$ARCHIVE_PATH" ]; then
             echo "ERROR: Archive was not created at $ARCHIVE_PATH"
