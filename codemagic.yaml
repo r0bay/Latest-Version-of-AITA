@@ -235,20 +235,21 @@ workflows:
           fi
           echo "Using archive: $ARCHIVE_PATH"
           
-          # Embed provisioning profile into the archived app
-          APP_PATH="$ARCHIVE_PATH/Products/Applications/App.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: App.app not found inside archive at: $APP_PATH"
+          # Determine the .app inside the archive robustly
+          APP_DIR="$ARCHIVE_PATH/Products/Applications"
+          APP_PATH="$(/bin/ls -1 "$APP_DIR"/*.app | head -1)"
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: .app not found inside archive at: $APP_DIR"
             exit 1
           fi
           
-          # Ensure an embedded profile exists inside the archived app (some toolchains require it present for export)
+          # Embed provisioning profile (harmless if already present)
           PROFILE_SRC="$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           if [ -f "$PROFILE_SRC" ]; then
-            echo "Embedding provisioning profile into archived app"
+            echo "Embedding provisioning profile into archived app: $APP_PATH"
             cp -f "$PROFILE_SRC" "$APP_PATH/embedded.mobileprovision"
           else
-            echo "WARN: Could not find $PROFILE_SRC to embed. Continuing (export may still succeed if Xcode resolves it)."
+            echo "WARN: $PROFILE_SRC not found; continuing."
           fi
           
           # Verify ExportOptions.plist template exists
@@ -260,27 +261,21 @@ workflows:
           
           echo "=== Exporting IPA ==="
           
-          # Rebuild ExportOptions.processed.plist with minimal, non-resigning config
+          # Start from template
           cp ExportOptions.plist ExportOptions.processed.plist
           
-          # Required modern method
+          # Modern method
           /usr/libexec/PlistBuddy -c "Delete :method" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
           
-          # Team (explicit but harmless)
-          /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
-          
-          # *** Key: map ONLY the app bundle id to the PROFILE NAME (not UUID) ***
-          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ExportOptions.processed.plist
-          
-          # *** Do NOT force any signing style or certificate at export (removing these avoids re-sign of frameworks) ***
+          # Explicitly force AUTOMATIC at export (prevents exporter from re-signing frameworks)
           /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Delete :signingCertificate" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string automatic" ExportOptions.processed.plist
           
-          # Safe defaults
+          # Remove any provisioning profile mappings entirely (these trigger the framework errors)
+          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
+          
+          # Keep safe defaults
           /usr/libexec/PlistBuddy -c "Delete :compileBitcode" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.processed.plist
           /usr/libexec/PlistBuddy -c "Delete :stripSwiftSymbols" ExportOptions.processed.plist 2>/dev/null || true
@@ -288,11 +283,13 @@ workflows:
           /usr/libexec/PlistBuddy -c "Delete :destination" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
           
-          # Assert we only mapped the app bundle id and nothing else
-          echo "ExportOptions verification:"
-          /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist
-          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null | grep -E '(Capacitor|Cordova|Pods)'; then
-            echo "ERROR: provisioningProfiles contains non-app entries"
+          # Optional (harmless): include teamID for clarity
+          /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
+          
+          # Sanity: ensure NOTHING references frameworks
+          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist >/dev/null 2>&1; then
+            echo "ERROR: provisioningProfiles still present; must be absent for export."
             exit 1
           fi
           
