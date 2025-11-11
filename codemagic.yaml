@@ -242,22 +242,34 @@ workflows:
           fi
           
           echo "=== Exporting IPA ==="
-          SAFE_PROFILE_NAME=${PROFILE_NAME//\"/\\\"}
           
           # Process template safely with PlistBuddy
           cp ExportOptions.plist ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" ExportOptions.processed.plist || {
-            echo "ERROR: Failed to set teamID in ExportOptions.plist"
-            exit 1
-          }
-          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:$BUNDLE_ID" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles:app.randomaita.final" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $SAFE_PROFILE_NAME" ExportOptions.processed.plist || {
-            echo "ERROR: Failed to set provisioning profile in ExportOptions.plist"
-            echo "Bundle ID: $BUNDLE_ID"
-            echo "Profile Name: $SAFE_PROFILE_NAME"
-            exit 1
-          }
+          
+          # Ensure export uses App Store Connect and does NOT re-sign anything
+          /usr/libexec/PlistBuddy -c "Set :method app-store-connect" ExportOptions.processed.plist || \
+            /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
+          
+          # Keep teamID (harmless/helpful)
+          if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" ExportOptions.processed.plist
+          else
+            /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
+          fi
+          
+          # Do NOT specify provisioningProfiles at export; it forces re-signing of frameworks and fails
+          /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
+          
+          # Do NOT force signingStyle at export (remove it so export doesn't try to re-sign)
+          /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
+          
+          # Retain other safe defaults
+          /usr/libexec/PlistBuddy -c "Set :compileBitcode false" ExportOptions.processed.plist || \
+            /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Set :stripSwiftSymbols true" ExportOptions.processed.plist || \
+            /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Set :destination export" ExportOptions.processed.plist || \
+            /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
           
           EXPORT_PATH="$CM_BUILD_DIR/ipa"
           mkdir -p "$EXPORT_PATH"
@@ -271,6 +283,7 @@ workflows:
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_PATH" \
             -exportOptionsPlist ExportOptions.processed.plist \
+            -allowProvisioningUpdates \
             2>&1 | tee /tmp/export.log || {
             echo ""
             echo "=== IPA EXPORT FAILED ==="
