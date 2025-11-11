@@ -225,6 +225,7 @@ workflows:
           : "${TEAM_ID:?TEAM_ID is not set}"
           : "${BUNDLE_ID:?BUNDLE_ID is not set}"
           : "${PROFILE_NAME:?PROFILE_NAME is not set (ensure profile install step exported it)}"
+          : "${PROFILE_UUID:?PROFILE_UUID is not set (ensure profile install step exported it)}"
           
           # Find the most recent archive (date-based format)
           ARCHIVE_PATH=$(find "$HOME/Library/Developer/Xcode/Archives" -name "App-*.xcarchive" -type d | sort -r | head -1)
@@ -233,6 +234,22 @@ workflows:
             exit 1
           fi
           echo "Using archive: $ARCHIVE_PATH"
+          
+          # Embed provisioning profile into the archived app
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/App.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: App.app not found inside archive at: $APP_PATH"
+            exit 1
+          fi
+          
+          # Ensure an embedded profile exists inside the archived app (some toolchains require it present for export)
+          PROFILE_SRC="$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          if [ -f "$PROFILE_SRC" ]; then
+            echo "Embedding provisioning profile into archived app"
+            cp -f "$PROFILE_SRC" "$APP_PATH/embedded.mobileprovision"
+          else
+            echo "WARN: Could not find $PROFILE_SRC to embed. Continuing (export may still succeed if Xcode resolves it)."
+          fi
           
           # Verify ExportOptions.plist template exists
           if [ ! -f "ExportOptions.plist" ]; then
@@ -246,24 +263,26 @@ workflows:
           # Process template safely with PlistBuddy
           cp ExportOptions.plist ExportOptions.processed.plist
           
-          # Ensure export uses App Store Connect and does NOT re-sign anything
+          # Use App Store Connect export
           /usr/libexec/PlistBuddy -c "Set :method app-store-connect" ExportOptions.processed.plist || \
             /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
           
-          # Keep teamID (harmless/helpful)
+          # Keep teamID for clarity
           if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
             /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" ExportOptions.processed.plist
           else
             /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
           fi
           
-          # Do NOT specify provisioningProfiles at export; it forces re-signing of frameworks and fails
+          # IMPORTANT: Provide ONLY the app bundle mapping. Do NOT include frameworks.
           /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ExportOptions.processed.plist
           
-          # Do NOT force signingStyle at export (remove it so export doesn't try to re-sign)
+          # DO NOT set signingStyle; letting Xcode decide avoids re-signing frameworks
           /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
           
-          # Retain other safe defaults
+          # Safe defaults
           /usr/libexec/PlistBuddy -c "Set :compileBitcode false" ExportOptions.processed.plist || \
             /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.processed.plist
           /usr/libexec/PlistBuddy -c "Set :stripSwiftSymbols true" ExportOptions.processed.plist || \
