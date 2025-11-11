@@ -260,43 +260,39 @@ workflows:
           
           echo "=== Exporting IPA ==="
           
-          # Process template safely with PlistBuddy
+          # Rebuild ExportOptions.processed.plist with minimal, non-resigning config
           cp ExportOptions.plist ExportOptions.processed.plist
           
           # Required modern method
-          /usr/libexec/PlistBuddy -c "Set :method app-store-connect" ExportOptions.processed.plist || \
-            /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Delete :method" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
           
-          # Team (harmless/explicit)
+          # Team (explicit but harmless)
           /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
           
-          # *** Key part: manual signing for APP TARGET ONLY using the PROFILE UUID ***
-          #  - Use UUID as the value (Xcode accepts UUID here).
-          #  - Do NOT add entries for frameworks.
+          # *** Key: map ONLY the app bundle id to the PROFILE NAME (not UUID) ***
           /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_UUID" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ExportOptions.processed.plist
           
-          # Explicitly state manual to stop Xcode from trying to fetch/override profiles
+          # *** Do NOT force any signing style or certificate at export (removing these avoids re-sign of frameworks) ***
           /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" ExportOptions.processed.plist
-          
-          # (Optional but stabilizing) Tell exporter which cert kind to expect
           /usr/libexec/PlistBuddy -c "Delete :signingCertificate" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" ExportOptions.processed.plist
           
           # Safe defaults
-          /usr/libexec/PlistBuddy -c "Set :compileBitcode false" ExportOptions.processed.plist || \
-            /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Set :stripSwiftSymbols true" ExportOptions.processed.plist || \
-            /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.processed.plist
-          /usr/libexec/PlistBuddy -c "Set :destination export" ExportOptions.processed.plist || \
-            /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Delete :compileBitcode" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Delete :stripSwiftSymbols" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Delete :destination" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
           
-          # Assert we did not accidentally add framework mappings
-          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null | grep -E 'Capacitor|Cordova|Pods' >/dev/null; then
-            echo "ERROR: provisioningProfiles contains framework targets"
+          # Assert we only mapped the app bundle id and nothing else
+          echo "ExportOptions verification:"
+          /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist
+          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null | grep -E '(Capacitor|Cordova|Pods)'; then
+            echo "ERROR: provisioningProfiles contains non-app entries"
             exit 1
           fi
           
