@@ -217,6 +217,52 @@ workflows:
           echo "✓ Archive created successfully at $ARCHIVE_PATH"
           cd ../..
       
+      - name: Verify Archive Signing
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          
+          : "${TEAM_ID:?TEAM_ID is not set}"
+          
+          # Locate the .app inside the archive robustly
+          ARCHIVE_ROOT=$(find "$HOME/Library/Developer/Xcode/Archives" -name "App-*.xcarchive" -type d | sort -r | head -1)
+          if [ -z "$ARCHIVE_ROOT" ] || [ ! -d "$ARCHIVE_ROOT" ]; then
+            echo "ERROR: Archive not found"
+            exit 1
+          fi
+          
+          APP_DIR="$ARCHIVE_ROOT/Products/Applications"
+          APP_PATH="$(/bin/ls -1 "$APP_DIR"/*.app | head -1)"
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: .app not found inside archive at: $APP_DIR"
+            exit 1
+          fi
+          echo "Verifying archive at: $APP_PATH"
+          
+          # 1) Embedded provisioning profile must exist
+          if [ ! -f "$APP_PATH/embedded.mobileprovision" ]; then
+            echo "ERROR: embedded.mobileprovision is missing inside the archived app."
+            echo "Ensure the archive step embeds the profile (we copy it during archive)."
+            exit 1
+          fi
+          
+          # 2) Team in embedded profile must match TEAM_ID
+          PROFILE_PLIST=$(/usr/bin/security cms -D -i "$APP_PATH/embedded.mobileprovision")
+          PROFILE_TEAM=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' /dev/stdin <<<"$PROFILE_PLIST")
+          echo "Archive embedded profile TeamID: $PROFILE_TEAM"
+          if [ "$PROFILE_TEAM" != "$TEAM_ID" ]; then
+            echo "ERROR: TeamID mismatch. Archive has $PROFILE_TEAM but expected $TEAM_ID."
+            exit 1
+          fi
+          
+          # 3) App is signed (no re-sign expected at export)
+          codesign -vv "$APP_PATH" && echo "codesign: OK"
+          codesign -d --entitlements :- "$APP_PATH" >/dev/null 2>&1 || {
+            echo "ERROR: Could not read entitlements from archived app (signature issue)."
+            exit 1
+          }
+          echo "Archive signing verified."
+      
       - name: Export IPA
         script: |
           set -euo pipefail
@@ -268,14 +314,17 @@ workflows:
           /usr/libexec/PlistBuddy -c "Delete :method" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
           
-          # Explicitly force AUTOMATIC at export (prevents exporter from re-signing frameworks)
+          # Force AUTOMATIC at export so Xcode packages without re-signing
           /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :signingStyle string automatic" ExportOptions.processed.plist
           
-          # Remove any provisioning profile mappings entirely (these trigger the framework errors)
+          # CRITICAL: ensure NO provisioningProfiles at export (prevents framework mapping)
           /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
           
-          # Keep safe defaults
+          # Remove teamID so exporter doesn't infer re-sign context
+          /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
+          
+          # Safe defaults
           /usr/libexec/PlistBuddy -c "Delete :compileBitcode" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.processed.plist
           /usr/libexec/PlistBuddy -c "Delete :stripSwiftSymbols" ExportOptions.processed.plist 2>/dev/null || true
@@ -283,13 +332,13 @@ workflows:
           /usr/libexec/PlistBuddy -c "Delete :destination" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :destination string export" ExportOptions.processed.plist
           
-          # Optional (harmless): include teamID for clarity
-          /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.processed.plist
-          
-          # Sanity: ensure NOTHING references frameworks
+          # Assert we truly removed any signing hints that trigger re-sign
           if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist >/dev/null 2>&1; then
-            echo "ERROR: provisioningProfiles still present; must be absent for export."
+            echo "ERROR: provisioningProfiles still present in ExportOptions.processed.plist"
+            exit 1
+          fi
+          if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
+            echo "ERROR: teamID still present in ExportOptions.processed.plist"
             exit 1
           fi
           
