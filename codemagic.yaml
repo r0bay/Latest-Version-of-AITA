@@ -226,8 +226,13 @@ workflows:
           : "${BUNDLE_ID:?BUNDLE_ID is not set}"
           : "${PROFILE_NAME:?PROFILE_NAME is not set (ensure profile install step exported it)}"
           
-          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
-          [ -d "$ARCHIVE_PATH" ] || { echo "ERROR: Archive not found at $ARCHIVE_PATH"; exit 1; }
+          # Find the most recent archive (date-based format)
+          ARCHIVE_PATH=$(find "$HOME/Library/Developer/Xcode/Archives" -name "App-*.xcarchive" -type d | sort -r | head -1)
+          if [ -z "$ARCHIVE_PATH" ] || [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERROR: Archive not found. Expected in $HOME/Library/Developer/Xcode/Archives"
+            exit 1
+          fi
+          echo "Using archive: $ARCHIVE_PATH"
           
           # Verify ExportOptions.plist template exists
           if [ ! -f "ExportOptions.plist" ]; then
