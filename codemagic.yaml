@@ -338,22 +338,25 @@ workflows:
           
           echo "=== Exporting IPA ==="
           
-          # Start from template
+          # Start fresh from template
           cp ExportOptions.plist ExportOptions.processed.plist
           
           # Modern method
           /usr/libexec/PlistBuddy -c "Delete :method" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" ExportOptions.processed.plist
           
-          # Force AUTOMATIC at export so Xcode packages without re-signing
+          # Keep AUTOMATIC to prevent framework re-sign
           /usr/libexec/PlistBuddy -c "Delete :signingStyle" ExportOptions.processed.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :signingStyle string automatic" ExportOptions.processed.plist
           
-          # CRITICAL: ensure NO provisioningProfiles at export (prevents framework mapping)
+          # CRITICAL: provide ONLY the app bundle mapping, using PROFILE NAME (not UUID)
           /usr/libexec/PlistBuddy -c "Delete :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.processed.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$BUNDLE_ID string $PROFILE_NAME" ExportOptions.processed.plist
           
-          # Remove teamID so exporter doesn't infer re-sign context
+          # Do NOT include teamID or signingCertificate at export
           /usr/libexec/PlistBuddy -c "Delete :teamID" ExportOptions.processed.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :signingCertificate" ExportOptions.processed.plist 2>/dev/null || true
           
           # Safe defaults
           /usr/libexec/PlistBuddy -c "Delete :compileBitcode" ExportOptions.processed.plist 2>/dev/null || true
@@ -371,13 +374,15 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print" ExportOptions.processed.plist
           echo ""
           
-          # Final guards to ensure no stale signing hints sneak back in
-          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist >/dev/null 2>&1; then
-            echo "ERROR: provisioningProfiles key must be absent at export"
+          # Guards: ONLY the app mapping; nothing else
+          echo "ExportOptions verification:"
+          /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist
+          if /usr/libexec/PlistBuddy -c "Print :provisioningProfiles" ExportOptions.processed.plist 2>/dev/null | grep -E '(Capacitor|Cordova|Pods)'; then
+            echo "ERROR: provisioningProfiles contains non-app entries"
             exit 1
           fi
           if /usr/libexec/PlistBuddy -c "Print :teamID" ExportOptions.processed.plist >/dev/null 2>&1; then
-            echo "ERROR: teamID key must be absent at export"
+            echo "ERROR: teamID must be absent at export"
             exit 1
           fi
           SIGNING_STYLE=$(/usr/libexec/PlistBuddy -c "Print :signingStyle" ExportOptions.processed.plist 2>/dev/null || echo "")
