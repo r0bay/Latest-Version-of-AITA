@@ -10,6 +10,12 @@ workflows:
         XCODE_SCHEME: "App"
         BUNDLE_ID: app.randomaita.final
         TEAM_ID: US86BZ3GH5
+        # App Store Connect API credentials for TestFlight upload via iTMSTransporter
+        # Set these in Codemagic UI: Teams → Environment variables
+        # ASC_KEY_ID: Your App Store Connect API Key ID (e.g., ABCDE12345)
+        # ASC_ISSUER_ID: Your Issuer ID (UUID from App Store Connect)
+        # ASC_API_KEY_P8: Upload as Secure file in Codemagic (upload .p8 file)
+        # Codemagic automatically exposes secure files as PATH variables (e.g., ASC_API_KEY_P8_PATH)
       groups:
         - ios_signing  # iOS certificate and profile secrets (CERT_P12_BASE64, P12_PASSWORD, MOBILEPROVISION_BASE64, PROFILE_NAME)
     scripts:
@@ -380,8 +386,16 @@ workflows:
           if [ ! -f "$P8_PATH" ]; then
             echo "ERROR: P8 key file not found at $P8_PATH"
             echo "Ensure ASC_API_KEY_P8 is uploaded as a Secure file in Codemagic"
+            echo "Codemagic automatically exposes secure files as PATH environment variables"
             exit 1
           fi
+          
+          # Verify the key file is readable
+          if [ ! -r "$P8_PATH" ]; then
+            echo "ERROR: P8 key file is not readable at $P8_PATH"
+            exit 1
+          fi
+          echo "P8 key file verified: $(ls -lh "$P8_PATH" | awk '{print $5}')"
           echo ""
           
           echo "=== Uploading to TestFlight via iTMSTransporter ==="
