@@ -383,35 +383,51 @@ PY
           echo "✓ IPA created at: $IPA_DIR/App.ipa"
           echo "IPA_DIR=$IPA_DIR" >> "$GITHUB_ENV"
 
-      # --- Upload to TestFlight via API key ---
-      - name: Upload to TestFlight (API key)
+      # --- Upload to TestFlight (Transporter if present, else Fastlane) ---
+      - name: Upload to TestFlight
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}   # full PEM text incl BEGIN/END, with newlines
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: |
           set -euo pipefail
-          IPA="$IPA_DIR/App.ipa"
-          [ -f "$IPA" ] || { echo "IPA missing"; exit 1; }
+          IPA_FILE="${IPA_DIR}/App.ipa"
+          [ -f "$IPA_FILE" ] || { echo "ERROR: IPA missing"; exit 1; }
 
-          # write .p8 from secret
+          # Write .p8 from secret
           mkdir -p "$HOME/.private_keys"
           KEY_PATH="$HOME/.private_keys/AuthKey_${ASC_KEY_ID}.p8"
           printf "%s" "$ASC_API_KEY_P8" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
-          echo "Key size: $(stat -f%z "$KEY_PATH") bytes"
 
-          # build API key json for fastlane
+          # Prefer Transporter if the binary exists; else fallback to fastlane deliver
+          TRANSPORTER=$(/usr/bin/find /Applications -type f -name iTMSTransporter -perm -111 2>/dev/null | head -1)
+          if [ -n "$TRANSPORTER" ]; then
+            "$TRANSPORTER" -m upload -assetFile "$IPA_FILE" -apiKey "$ASC_KEY_ID" -apiIssuer "$ASC_ISSUER_ID" -WONoPause true -v informational | tee /tmp/transporter.log
+            if grep -qi "was uploaded successfully" /tmp/transporter.log; then
+              echo "✓ Transporter upload ok"
+              exit 0
+            fi
+            echo "Transporter failed, falling back to fastlane..."
+          fi
+
+          # Fastlane fallback (API key JSON created from your .p8 earlier)
+          if ! command -v fastlane >/dev/null 2>&1; then
+            sudo gem install fastlane --no-document
+          fi
+
           API_JSON="$HOME/.private_keys/appstore_api_key.json"
           awk 'BEGIN{print "{\042key_id\042:\042'${ASC_KEY_ID}'\042,\042issuer_id\042:\042'${ASC_ISSUER_ID}'\042,\042key\042:\042"} {gsub(/\r/,""); printf "%s\\n",$0} END{print "\042,\042in_house\042:false}"}' "$KEY_PATH" > "$API_JSON"
+          
+          fastlane deliver --api_key_path "$API_JSON" --ipa "$IPA_FILE" --skip_metadata true --skip_screenshots true --skip_app_version_update true --force | tee /tmp/deliver.log
+          if grep -qi "Successfully uploaded the new binary" /tmp/deliver.log; then
+            echo "✓ Fastlane upload ok"
+            exit 0
+          fi
 
-          fastlane deliver \
-            --api_key_path "$API_JSON" \
-            --ipa "$IPA" \
-            --skip_metadata true \
-            --skip_screenshots true \
-            --skip_app_version_update true \
-            --force
+          echo "✗ Upload failed"
+          tail -200 /tmp/transporter.log /tmp/deliver.log 2>/dev/null || true
+          exit 1
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
