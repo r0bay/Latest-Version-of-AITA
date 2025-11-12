@@ -320,8 +320,8 @@ PY
             exit 1
           fi
 
-      # --- Archive with manual signing (simple, explicit flags) ---
-      - name: Build & archive (manual settings, explicit flags)
+      # --- Archive with manual signing (explicit stable flags) ---
+      - name: Build & archive (explicit stable flags)
         env:
           KEYCHAIN_NAME: signing_temp
         run: |
@@ -346,13 +346,13 @@ PY
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             CODE_SIGN_IDENTITY="$DIST_IDENTITY" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
             SWIFT_VERSION=5.0 \
             IPHONEOS_DEPLOYMENT_TARGET=14.0 \
             ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
             ENABLE_BITCODE=NO \
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=YES \
-            OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
             archive | tee archive_log.txt
 
           echo "Archive finished: $ARCHIVE_PATH"
