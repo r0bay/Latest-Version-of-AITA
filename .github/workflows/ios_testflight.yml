@@ -55,17 +55,31 @@ jobs:
           # decode p12
           printf %s "$CERT_P12_BASE64" | base64 --decode > /tmp/cert.p12
 
-          # quick verify
-          if command -v openssl >/dev/null 2>&1; then
-            if ! openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD}" -nokeys -info >/dev/null 2>&1; then
-              echo "ERROR: p12 password wrong or file corrupt"; exit 1
-            fi
+          # --- PRECHECK: prove password is correct and extract cert+key ---
+          if ! openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD}" -info -nokeys >/dev/null 2>&1; then
+            echo "ERROR: p12 password is incorrect or file is corrupt (OpenSSL check failed)."
+            exit 1
           fi
 
-          # import
-          security import /tmp/cert.p12 -k "$KEYCHAIN" -P "${P12_PASSWORD}" \
-            -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
+          # Extract leaf certificate and private key from the P12
+          openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD}" -clcerts -nokeys -out /tmp/dist_cert.cer
+          openssl pkcs12 -in /tmp/cert.p12 -passin "pass:${P12_PASSWORD}" -nocerts -nodes -out /tmp/dist_key.pem
+
+          # Sanity: show subjects (no secrets printed)
+          openssl x509 -in /tmp/dist_cert.cer -noout -subject || true
+
+          # --- IMPORT via PEM (avoids PKCS#12 MAC verification issues) ---
+          # Import certificate
+          security import /tmp/dist_cert.cer -k "$KEYCHAIN" -A -t cert -f x509
+
+          # Import private key (no password on PEM because we used -nodes)
+          security import /tmp/dist_key.pem -k "$KEYCHAIN" -A -t priv
+
+          # Allow codesign/xcodebuild to use the key
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+
+          # Verify key is usable
+          security find-identity -p codesigning "$KEYCHAIN" || true
 
       - name: Install provisioning profile
         shell: bash
@@ -158,4 +172,5 @@ jobs:
         with:
           name: App.ipa
           path: ${{ runner.temp }}/ipa/App.ipa
+
 
