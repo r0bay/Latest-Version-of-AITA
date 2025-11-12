@@ -400,44 +400,28 @@ workflows:
           : "${ASC_KEY_ID:?ASC_KEY_ID missing}"
           : "${ASC_ISSUER_ID:?ASC_ISSUER_ID missing}"
           
-          # Resolve the .p8 private key via one of:
-          # 1) ASC_API_KEY_P8_PATH (secure file path)
-          # 2) ASC_API_KEY_P8      (raw .p8 contents pasted as a secret var)
-          # 3) ASC_API_KEY_P8_BASE64 (base64 of the .p8)
+          # Resolve the .p8 private key via one of: PATH, raw, or base64
           TMP_KEY_DIR="$HOME/.private_keys"
           mkdir -p "$TMP_KEY_DIR"
           DEST_KEY="$TMP_KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
           
           if [ -n "${ASC_API_KEY_P8_PATH-}" ] && [ -f "$ASC_API_KEY_P8_PATH" ]; then
-            echo "Using ASC_API_KEY_P8_PATH: $ASC_API_KEY_P8_PATH"
             cp -f "$ASC_API_KEY_P8_PATH" "$DEST_KEY"
           elif [ -n "${ASC_API_KEY_P8-}" ]; then
-            echo "Using ASC_API_KEY_P8 (raw contents)"
             printf "%s" "$ASC_API_KEY_P8" > "$DEST_KEY"
           elif [ -n "${ASC_API_KEY_P8_BASE64-}" ]; then
-            echo "Using ASC_API_KEY_P8_BASE64 (base64 encoded)"
             printf "%s" "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$DEST_KEY" || \
             printf "%s" "$ASC_API_KEY_P8_BASE64" | base64 -D > "$DEST_KEY"
           else
-            echo "ERROR: Provide one of ASC_API_KEY_P8_PATH (secure file), ASC_API_KEY_P8 (raw), or ASC_API_KEY_P8_BASE64."
-            echo ""
-            echo "To set up in Codemagic:"
-            echo "1. Go to Teams → Environment variables"
-            echo "2. Add variable: ASC_API_KEY_P8 (mark as Secret)"
-            echo "3. Value: Paste entire .p8 file contents (including BEGIN/END lines)"
-            echo "4. Group: ios_signing (or your signing group)"
+            echo "ERROR: Provide one of ASC_API_KEY_P8_PATH, ASC_API_KEY_P8, ASC_API_KEY_P8_BASE64"
             exit 1
           fi
-          
           chmod 600 "$DEST_KEY"
-          export API_PRIVATE_KEYS_DIR="$TMP_KEY_DIR"
           
           echo "Using key file: $DEST_KEY"
           echo "Key file size: $(stat -f%z "$DEST_KEY" 2>/dev/null || stat -c%s "$DEST_KEY" 2>/dev/null || wc -c < "$DEST_KEY") bytes"
-          echo ""
           
-          # Optional preflight: print identifiers
-          echo "=== Pre-flight IPA Check ==="
+          # Pre-flight bundle/version (useful for logs)
           TMP_DIR="$(mktemp -d)"
           unzip -qq "$IPA_FILE" -d "$TMP_DIR"
           APP_PLIST="$(/bin/ls -1 "$TMP_DIR/Payload/"*.app/Info.plist | head -1)"
@@ -445,71 +429,92 @@ workflows:
           VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST" 2>/dev/null || echo "(unknown)")
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST" 2>/dev/null || echo "(unknown)")
           echo "IPA identifiers → Bundle: $BUNDLE_ID  Version: $VER  Build: $BUILD"
+          echo "Preflight: App record must exist in App Store Connect for bundle: $BUNDLE_ID"
           rm -rf "$TMP_DIR"
           echo ""
           
-          # Find the real iTMSTransporter binary (covers both Xcode and standalone Transporter.app)
-          TRANSPORTER_BIN="$(
-            /usr/bin/find /Applications -type f -perm -111 \
-              \( -path "*/iTMSTransporter" -o -path "*/itms/bin/iTMSTransporter" \) 2>/dev/null \
-            | head -1
-          )"
-          if [ -z "$TRANSPORTER_BIN" ]; then
-            echo "WARN: Could not locate Transporter binary; falling back to xcrun iTMSTransporter"
-            TRANSPORTER_BIN="iTMSTransporter"
-          else
-            echo "Using Transporter binary: $TRANSPORTER_BIN"
-          fi
-          
-          # Ensure headless mode & clean env just before calling Transporter
+          # ---- Try iTMSTransporter (multiple real locations) ----
           export LC_ALL=en_US.UTF-8
           export LANG=en_US.UTF-8
           export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
           
-          # Preflight sanity check
-          echo "Preflight: App record must exist in App Store Connect for bundle: $BUNDLE_ID"
-          echo "(If Transporter returns 'No suitable application record', create the app once in App Store Connect with bundle ID: $BUNDLE_ID)"
-          echo ""
+          # Try known Xcode paths first (ContentDeliveryServices.framework in modern Xcode)
+          TRANSPORTER_BIN="$(
+            /usr/bin/find /Applications -type f -perm -111 2>/dev/null \
+              \( -path "*/Contents/SharedFrameworks/ContentDeliveryServices.framework*/itms/bin/iTMSTransporter" \
+                 -o -path "*/Application Loader.app/Contents/itms/bin/iTMSTransporter" \
+                 -o -path "*/Transporter.app/Contents/itms/bin/iTMSTransporter" \
+                 -o -path "*/itms/bin/iTMSTransporter" \
+                 -o -name "iTMSTransporter" \) \
+            | head -1
+          )"
           
-          # Upload
-          echo "=== Uploading to TestFlight via iTMSTransporter ==="
-          set -o pipefail
-          "$TRANSPORTER_BIN" \
-            -m upload \
-            -assetFile "$IPA_FILE" \
-            -apiKey "$ASC_KEY_ID" \
-            -apiIssuer "$ASC_ISSUER_ID" \
-            -v informational \
-            -WONoPause true \
-            2>&1 | tee /tmp/transporter.log || {
-            echo ""
-            echo "⚠ iTMSTransporter upload failed"
-            echo ""
-            echo "Error details:"
+          if [ -n "$TRANSPORTER_BIN" ] && [ -x "$TRANSPORTER_BIN" ]; then
+            echo "Using Transporter binary: $TRANSPORTER_BIN"
+            set -o pipefail
+            "$TRANSPORTER_BIN" \
+              -m upload \
+              -assetFile "$IPA_FILE" \
+              -apiKey "$ASC_KEY_ID" \
+              -apiIssuer "$ASC_ISSUER_ID" \
+              -v informational \
+              -WONoPause true \
+              2>&1 | tee /tmp/transporter.log
+            
+            if grep -Ei "was uploaded successfully" /tmp/transporter.log >/dev/null; then
+              echo "✓ Transporter reports success."
+              exit 0
+            fi
+            
+            echo "Transporter did not report success. Tail:"
             tail -200 /tmp/transporter.log
-            echo ""
-            echo "Common issues:"
-            echo "- 'No suitable application record': Create the app in App Store Connect with bundle ID: $BUNDLE_ID"
-            echo "- 'This bundle is identical': Bump CFBundleVersion (build number) and rebuild"
-            echo "- API key permissions: Ensure key has App Manager or Admin role"
-            echo ""
-            echo "The IPA file is still available as a Codemagic artifact for manual upload."
-            exit 1
-          }
-          
-          echo ""
-          if grep -Ei "was uploaded successfully" /tmp/transporter.log >/dev/null; then
-            echo "✓ Transporter reports success."
-            echo "Check App Store Connect for processing status"
+            echo "Falling back to Fastlane deliver…"
           else
-            echo "⚠ Transporter did not report a clean success."
-            echo "Upload log:"
-            tail -200 /tmp/transporter.log
-            echo ""
-            echo "The upload may have succeeded. Check App Store Connect for the build."
-            echo "If the build appears, the upload was successful despite the message."
-            exit 1
+            echo "iTMSTransporter not found. Using Fastlane deliver fallback…"
           fi
+          
+          # ---- Fallback: Fastlane deliver with API key JSON (robust on all images) ----
+          # Create a temporary App Store Connect API key JSON for fastlane
+          API_JSON="$HOME/.private_keys/appstore_api_key.json"
+          cat > "$API_JSON" <<JSON
+          {
+            "key_id": "$ASC_KEY_ID",
+            "issuer_id": "$ASC_ISSUER_ID",
+            "key": "$(sed 's/$/\\n/' "$DEST_KEY" | tr -d '\n' | sed 's/\\n$//')",
+            "in_house": false
+          }
+          JSON
+          
+          echo "Using Fastlane deliver fallback with API key JSON at $API_JSON"
+          # Prefer deliver (metadata uploader). It can upload binaries with --ipa and api key.
+          # Skip metadata/screenshots to just push the build to App Store Connect.
+          set -o pipefail
+          if command -v bundle >/dev/null 2>&1 && [ -f "Gemfile" ]; then
+            bundle exec fastlane deliver \
+              --api_key_path "$API_JSON" \
+              --ipa "$IPA_FILE" \
+              --skip_metadata true \
+              --skip_screenshots true \
+              --skip_app_version_update true \
+              --force 2>&1 | tee /tmp/deliver.log
+          else
+            fastlane deliver \
+              --api_key_path "$API_JSON" \
+              --ipa "$IPA_FILE" \
+              --skip_metadata true \
+              --skip_screenshots true \
+              --skip_app_version_update true \
+              --force 2>&1 | tee /tmp/deliver.log
+          fi
+          
+          if grep -Ei "Successfully uploaded the new binary to App Store Connect" /tmp/deliver.log >/dev/null; then
+            echo "✓ Fastlane deliver reports success."
+            exit 0
+          fi
+          
+          echo "Fastlane deliver did not report success. Tail:"
+          tail -200 /tmp/deliver.log
+          exit 1
     
     artifacts:
       - build/ipa/*.ipa
