@@ -144,10 +144,6 @@ jobs:
             | egrep 'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|PROVISIONING_PROFILE = |DEVELOPMENT_TEAM'
 
       - name: Build and archive with Distribution signing
-        env:
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
-          PROFILE_NAME: ${{ secrets.PROFILE_NAME }}
         run: |
           set -euo pipefail
           cd ios/App
@@ -162,11 +158,11 @@ jobs:
             -authenticationKeyPath "${HOME}/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
             -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
+            PRODUCT_BUNDLE_IDENTIFIER="${{ secrets.BUNDLE_ID }}" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            PROVISIONING_PROFILE_SPECIFIER="${{ secrets.PROFILE_NAME }}" \
             OTHER_CODE_SIGN_FLAGS="--keychain signing_temp.keychain" \
             clean archive | tee /tmp/archive.log
 
