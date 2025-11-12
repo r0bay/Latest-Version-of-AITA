@@ -3,41 +3,31 @@ ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 platform :ios, '14.0'
 use_modular_headers!
 use_frameworks! :linkage => :static
-inhibit_all_warnings!
+install! 'cocoapods', :deterministic_uuids => true
 
-require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+require_relative '../capacitor-cordova-ios-plugins/podHelpers'
+
+def capacitor_pods
+  pod 'Capacitor', :path => '../node_modules/@capacitor/ios'
+  pod 'CapacitorCordova', :path => '../node_modules/@capacitor/ios'
+end
 
 target 'App' do
   capacitor_pods
-  pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
-  pod 'Google-Mobile-Ads-SDK', '= 12.12.0'
-  pod 'FirebaseCore', '~> 10.15'
-  pod 'FirebaseInstallations', '~> 10.15'
-  pod 'FirebaseCoreInternal', '~> 10.15'
-  pod 'FirebaseAnalytics', '~> 10.15'
-  pod 'FirebaseAppCheckInterop', '~> 10.15'
-  pod 'GoogleAppMeasurement', '~> 10.15'
-  pod 'PromisesObjC', '~> 2.4.0'
-end
 
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-    end
-  end
-  installer.pods_project.build_configurations.each do |config|
-    config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
-  end
-  # --- Force CapacitorCommunityAdmob to use Google-Mobile-Ads-SDK 12.12.0 ---
-  installer.pod_targets.each do |pod|
-    if pod.name == 'CapacitorCommunityAdmob'
-      pod.dependencies.each do |dep|
-        if dep.name == 'Google-Mobile-Ads-SDK'
-          dep.requirement = Gem::Requirement.new('= 12.12.0')
-        end
+  # Use the plugin directly from node_modules (bypass spec repo completely)
+  pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
+
+  # DO NOT add Google-Mobile-Ads-SDK or any Firebase pods here.
+  # The Admob plugin declares exactly what it needs.
+
+  post_install do |installer|
+    installer.pods_project.targets.each do |t|
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+        cfg.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
+        cfg.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+        cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
       end
     end
   end

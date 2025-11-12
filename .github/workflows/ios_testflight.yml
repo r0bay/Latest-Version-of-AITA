@@ -196,7 +196,6 @@ PY
         run: |
           cd ios/App
           rm -rf Pods Podfile.lock
-          pod repo update
           pod deintegrate || true
           pod install --clean-install --verbose --no-repo-update
           cd ../..
