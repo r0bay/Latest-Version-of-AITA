@@ -30,29 +30,32 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Clean & sync Capacitor, then install Pods ---
-      - name: Clean & sync Capacitor, then install Pods
+      # --- Clean & sync Capacitor iOS and install pods (deterministic) ---
+      - name: Clean & sync Capacitor iOS and install pods (deterministic)
         run: |
           set -euo pipefail
-          # Ensure Node deps (provides node_modules/@capacitor/ios)
-          if [ ! -d "node_modules" ]; then
+          # Start clean
+          rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
+          rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
+
+          # Ensure node_modules (so node_modules/@capacitor/ios exists)
+          if [ ! -d node_modules ]; then
             npm ci
           fi
 
-          # Clean native iOS artifacts to avoid stale state
-          rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
-
-          # Copy web assets and refresh native iOS project
+          # Sync Capacitor (copies web assets + regenerates ios/App)
           npx cap sync ios
 
-          # Install pods (no helper needed because Podfile is explicit)
-          pushd ios/App
-            bundle config set path 'vendor/bundle' || true
-            gem install cocoapods -v '~>1.15.2' --no-document || true
-            bundle exec pod install --clean-install --verbose --no-repo-update || pod install --clean-install --verbose --no-repo-update
-          popd
+          # Bundler-pinned CocoaPods (uses Gemfile if present)
+          if [ -f Gemfile ]; then
+            bundle config set path 'vendor/bundle'
+            bundle install --jobs 4
+            bundle exec pod install --project-directory=ios/App --repo-update --clean-install --verbose
+          else
+            pod install --project-directory=ios/App --repo-update --clean-install --verbose
+          fi
 
-          # Sanity: list workspace schemes
+          # Show resulting workspace schemes
           xcodebuild -workspace ios/App/App.xcworkspace -list
           echo "✓ Synced Capacitor and installed pods"
 
@@ -280,7 +283,6 @@ PY
         run: |
           set -euo pipefail
 
-          # Detect scheme robustly (falls back to "App")
           SCHEME_JSON=$(xcodebuild -workspace ios/App/App.xcworkspace -list -json || true)
           SCHEME=$(ruby -e '
             require "json"
@@ -290,7 +292,6 @@ PY
           ' <<< "$SCHEME_JSON")
           echo "Using scheme: $SCHEME"
 
-          # Build to iOS Simulator to avoid signing
           set +e
           xcodebuild \
             -workspace ios/App/App.xcworkspace \
@@ -300,7 +301,7 @@ PY
             -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_STYLE=Manual \
+            CODE_SIGN_STYLE=Manual \
             SWIFT_VERSION=5.0 \
             IPHONEOS_DEPLOYMENT_TARGET=14.0 \
             ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
@@ -317,9 +318,7 @@ PY
           echo "=== TAIL 120 lines ===" || true
           tail -120 /tmp/sanity_build.log || true
 
-          # Upload full log for inspection
           mkdir -p artifacts && cp /tmp/sanity_build.log artifacts/sanity_build.log
-          echo "sanity_build.log" > artifacts/manifest.txt
 
           exit $BUILD_STATUS
 
