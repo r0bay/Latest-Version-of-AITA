@@ -5,47 +5,47 @@ use_modular_headers!
 use_frameworks! :linkage => :static
 install! 'cocoapods', :deterministic_uuids => true
 
-require_relative '../capacitor-cordova-ios-plugins/podHelpers'
-
-def capacitor_pods
-  pod 'Capacitor', :path => '../node_modules/@capacitor/ios'
-  pod 'CapacitorCordova', :path => '../node_modules/@capacitor/ios'
-end
+# Use Capacitor's official pods helper (do NOT require cordova podHelpers)
+require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
 target 'App' do
-  capacitor_pods
-
-  # Use the plugin directly from node_modules (bypass spec repo completely)
+  # Local plugin (bypass spec repo)
   pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
 
-  # DO NOT add Google-Mobile-Ads-SDK or any Firebase pods here.
-  # The Admob plugin declares exactly what it needs.
+  # Pull in Capacitor pods
+  capacitor_pods
 
-  post_install do |installer|
-    installer.pods_project.targets.each do |t|
+  # Keep this if you have Cordova plugins installed via Capacitor
+  require_relative '../../node_modules/@capacitor/ios/scripts/cordova_pods'
+  cordova_pods
+end
+
+post_install do |installer|
+  # Global pod build settings
+  installer.pods_project.targets.each do |t|
+    t.build_configurations.each do |cfg|
+      cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+      cfg.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
+      cfg.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+      cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+      # Force Swift 5.9 to avoid Swift 6 breakages
+      cfg.build_settings['SWIFT_VERSION'] = '5.9'
+      cfg.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+    end
+  end
+
+  # Also stamp the App.xcodeproj with Swift 5.9 / iOS 14 (for safety)
+  app_project_path = File.join(__dir__, 'App.xcodeproj')
+  if File.exist?(app_project_path)
+    require 'xcodeproj'
+    xproj = Xcodeproj::Project.open(app_project_path)
+    xproj.targets.each do |t|
       t.build_configurations.each do |cfg|
-        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-        cfg.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
-        cfg.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
-        cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-        # Force Swift 5.9 across pods (Xcode 16 defaults to Swift 6)
         cfg.build_settings['SWIFT_VERSION'] = '5.9'
-        cfg.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+        cfg.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
       end
     end
-
-    # Also force Swift 5.9 on the App.xcodeproj build settings
-    app_project_path = File.join(__dir__, 'App.xcodeproj')
-    if File.exist?(app_project_path)
-      xcodeproj = Xcodeproj::Project.open(app_project_path)
-      xcodeproj.targets.each do |t|
-        t.build_configurations.each do |cfg|
-          cfg.build_settings['SWIFT_VERSION'] = '5.9'
-          cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-          cfg.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
-        end
-      end
-      xcodeproj.save
-    end
+    xproj.save
   end
 end
