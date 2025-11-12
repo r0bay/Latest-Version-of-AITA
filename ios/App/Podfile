@@ -1,29 +1,35 @@
+# freeze_string_literal: true
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 platform :ios, '14.0'
 use_frameworks! :linkage => :static
 inhibit_all_warnings!
-install! 'cocoapods', :deterministic_uuids => true
 
 helper_path = File.expand_path('../../node_modules/@capacitor/ios/scripts/pods_helpers.rb', __FILE__)
-helper_ok = File.exist?(helper_path)
+HAS_HELPER = File.exist?(helper_path)
+require helper_path if HAS_HELPER
 
 target 'App' do
-  if helper_ok
-    require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+  if HAS_HELPER
     capacitor_pods
   else
-    Pod::UI.puts "⚠️  pods_helpers.rb not found at #{helper_path} — using explicit Capacitor pods"
-    pod 'Capacitor',        :path => '../../node_modules/@capacitor/ios'
+    # Fallback if pods_helpers.rb isn't present yet
+    pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
     pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
   end
 end
 
 post_install do |installer|
-  # Match CI & project to iOS 14
-  assertDeploymentTarget(installer, '14.0') if helper_ok
   installer.pods_project.targets.each do |t|
-    t.build_configurations.each do |bc|
-      bc.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      bc.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'  # don't sign Pods
+    t.build_configurations.each do |c|
+      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+      c.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+      c.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+      c.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+      c.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
     end
+  end
+
+  if HAS_HELPER && self.respond_to?(:assertDeploymentTarget)
+    assertDeploymentTarget(installer, '14.0')
   end
 end

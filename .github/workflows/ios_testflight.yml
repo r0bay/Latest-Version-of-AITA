@@ -30,29 +30,33 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Sync Capacitor & install pods (ensures helper exists) ---
-      - name: Sync Capacitor & install pods (ensures helper exists)
+      # --- Ensure node_modules, sync Capacitor, and install pods (bundler) ---
+      - name: Ensure node_modules, sync Capacitor, and install pods (bundler)
         run: |
           set -euo pipefail
-          # Ensure node_modules exists so pods_helpers.rb is available
           if [ ! -d "node_modules" ]; then
             echo "node_modules missing — running npm ci"
             npm ci
           fi
 
-          # Show whether the helper is present
+          # Make sure Capacitor iOS project & helper exist
+          npx cap sync ios
+
+          # Show helper presence
           ls -la node_modules/@capacitor/ios/scripts || true
 
-          # Fresh Capacitor sync to regenerate ios project + Podfile integration
-          npx cap sync ios
+          # Use Bundler-pinned CocoaPods for consistent resolution
+          gem install bundler --no-document
+          bundle config set path 'vendor/bundle'
+          bundle install --jobs 4
 
           cd ios/App
           rm -rf Pods Podfile.lock
-          # Do a clean install; no repo update needed for local pods
-          pod install --clean-install --verbose --no-repo-update
+          # Clean install; allow repo update because Capacitor podspec may reference trunk
+          bundle exec pod install --repo-update --clean-install --verbose
 
           cd ../..
-          echo "✓ Synced Capacitor and installed pods"
+          echo "✓ Synced Capacitor and installed pods via Bundler"
 
       # --- Force iOS 14.0 + Swift/linker settings across the project ---
       - name: Hard-set iOS deployment target and Swift settings
@@ -263,18 +267,13 @@ PY
       - name: Compile sanity build (no signing, force settings, show first errors)
         run: |
           set -euo pipefail
-
-          # Detect scheme (workspace)
           SCHEME="$(xcodebuild -workspace ios/App/App.xcworkspace -list -json \
             | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts (j["workspace"] ? j["workspace"]["schemes"][0] : j["project"]["schemes"][0])')"
-
           echo "Using scheme: $SCHEME"
 
-          # Clean build dir to avoid stale artifacts
           rm -rf build_sanity
           mkdir -p build_sanity
 
-          # Build WITHOUT signing, but force typical stability flags
           set +e
           xcodebuild \
             -workspace ios/App/App.xcworkspace \
@@ -299,12 +298,7 @@ PY
           echo "=== TAIL 120 lines ==="
           tail -n 120 build_sanity/log.txt || true
 
-          if [ $BUILD_STATUS -ne 0 ]; then
-            echo "Sanity compile failed (expected if there is a genuine code/config error)."
-            exit 1
-          fi
-
-          echo "Sanity compile passed."
+          exit $BUILD_STATUS
 
       # --- Resolve distribution identity from the temp keychain ---
       - name: Resolve distribution identity
