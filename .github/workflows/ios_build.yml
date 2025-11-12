@@ -92,8 +92,8 @@ jobs:
           # Import private key (no password on PEM because we used -nodes)
           /usr/bin/security import /tmp/dist_key.pem -k "$KEYCHAIN_NAME" -A -t priv
           
-          # Allow codesign/xcodebuild to use the key
-          /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN_NAME"
+          # Allow codesign/xcodebuild to use the key (use keychain password)
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           
           # Verify key is usable
           echo "Verifying certificate import..."
