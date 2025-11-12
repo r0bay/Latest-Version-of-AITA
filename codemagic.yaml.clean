@@ -1,0 +1,206 @@
+workflows:
+  ios-workflow:
+    name: iOS Workflow - Clean Start
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      vars:
+        APP_ID: app.randomaita.final
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        BUNDLE_ID: app.randomaita.final
+        TEAM_ID: US86BZ3GH5
+      groups:
+        - apple_credentials  # App Store Connect API key (keep existing)
+    scripts:
+      - name: Install Node.js dependencies
+        script: |
+          npm ci
+      
+      - name: Sync Capacitor
+        script: |
+          npx cap sync ios
+      
+      - name: Install CocoaPods
+        script: |
+          cd ios/App
+          pod install --repo-update
+          cd ../..
+      
+      - name: Import Distribution Certificate
+        script: |
+          set -euo pipefail
+          
+          echo "=== Importing Distribution Certificate ==="
+          
+          # Decode certificate from secret
+          CERT_FILE=$(mktemp)
+          echo "$IOS_DISTRIBUTION_CERT" | base64 -d > "$CERT_FILE"
+          
+          # Verify certificate file
+          CERT_SIZE=$(wc -c < "$CERT_FILE" | tr -d ' ')
+          echo "Certificate size: $CERT_SIZE bytes"
+          
+          if [ "$CERT_SIZE" -lt 1000 ]; then
+            echo "ERROR: Certificate file too small - check base64 encoding"
+            exit 1
+          fi
+          
+          # Initialize keychain
+          keychain initialize
+          
+          # Import certificate
+          echo "Importing certificate with password..."
+          keychain add-certificates \
+            --certificate "$CERT_FILE" \
+            --certificate-password "$IOS_CERT_PASSWORD"
+          
+          # Verify import
+          security find-identity -v -p codesigning | grep "Apple Distribution" || {
+            echo "WARNING: Apple Distribution certificate not found in keychain"
+          }
+          
+          rm -f "$CERT_FILE"
+          echo "✓ Certificate imported successfully"
+      
+      - name: Install Provisioning Profile
+        script: |
+          set -euo pipefail
+          
+          echo "=== Installing Provisioning Profile ==="
+          
+          # Decode profile from secret
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          
+          echo "$IOS_PROFILE_APP_STORE_BASE64" | base64 -d > "$PROFILE_DIR/RandomAITAFinal_AppStore.mobileprovision"
+          
+          # Verify profile
+          PROFILE_SIZE=$(wc -c < "$PROFILE_DIR/RandomAITAFinal_AppStore.mobileprovision" | tr -d ' ')
+          echo "Profile size: $PROFILE_SIZE bytes"
+          
+          if [ "$PROFILE_SIZE" -lt 1000 ]; then
+            echo "ERROR: Profile file too small - check base64 encoding"
+            exit 1
+          fi
+          
+          # Read profile metadata
+          security cms -D -i "$PROFILE_DIR/RandomAITAFinal_AppStore.mobileprovision" | \
+            grep -A 5 "UUID\|Name\|TeamIdentifier" || echo "Profile installed"
+          
+          echo "✓ Provisioning profile installed"
+      
+      - name: Configure Xcode Project
+        script: |
+          cd ios/App
+          
+          # Set development team
+          sed -i.bak "s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $TEAM_ID;/g" App.xcodeproj/project.pbxproj
+          
+          # Set code signing to Manual
+          sed -i.bak "s/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g" App.xcodeproj/project.pbxproj
+          sed -i.bak "s/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g" App.xcodeproj/project.pbxproj
+          
+          # Set provisioning profile specifier
+          sed -i.bak 's/PROVISIONING_PROFILE_SPECIFIER = "";/PROVISIONING_PROFILE_SPECIFIER = "RandomAITAFinal_AppStore";/g' App.xcodeproj/project.pbxproj
+          
+          # Set code sign identity
+          sed -i.bak 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "Apple Distribution";/g' App.xcodeproj/project.pbxproj
+          
+          cd ../..
+          echo "✓ Xcode project configured"
+      
+      - name: Build Archive
+        script: |
+          cd ios/App
+          
+          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -archivePath "$ARCHIVE_PATH" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="RandomAITAFinal_AppStore" \
+            DEVELOPMENT_TEAM="$TEAM_ID"
+          
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERROR: Archive not created"
+            exit 1
+          fi
+          
+          echo "✓ Archive created successfully"
+          cd ../..
+      
+      - name: Export IPA
+        script: |
+          ARCHIVE_PATH="$CM_BUILD_DIR/build.xcarchive"
+          
+          # Create export options
+          cat > export_options.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key>
+              <string>RandomAITAFinal_AppStore</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+          
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportOptionsPlist export_options.plist \
+            -exportPath "$CM_BUILD_DIR"
+          
+          IPA_FILE=$(find "$CM_BUILD_DIR" -name "*.ipa" -type f | head -1)
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: IPA not found"
+            exit 1
+          fi
+          
+          echo "✓ IPA exported: $IPA_FILE"
+      
+      - name: Upload to TestFlight
+        script: |
+          IPA_FILE=$(find "$CM_BUILD_DIR" -name "*.ipa" -type f | head -1)
+          
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_FILE" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+          
+          echo "✓ Uploaded to TestFlight"
+    
+    artifacts:
+      - build/**/*.ipa
+    
+    publishing:
+      email:
+        recipients:
+          - robbyaw@icloud.com
+        notify:
+          success: true
+          failure: true
+
+
+
+
+

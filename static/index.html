@@ -1,0 +1,218 @@
+<!doctype html>
+<html>
+<head>
+  <!-- GA4 - Only load if user hasn't opted out -->
+  <script>
+    // Check if user has opted out of tracking (set via browser console: localStorage.setItem('ga_opt_out', 'true'))
+    const gaOptOut = localStorage.getItem('ga_opt_out') === 'true';
+    
+    if (!gaOptOut) {
+      // Load Google Analytics
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = 'https://www.googletagmanager.com/gtag/js?id=G-BDXP39TTQC';
+      document.head.appendChild(script);
+      
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){ dataLayer.push(arguments); }
+      gtag('js', new Date());
+      gtag('config', 'G-BDXP39TTQC');
+    } else {
+      // Replace gtag function with no-op to prevent errors
+      window.gtag = function() {};
+    }
+  </script>
+
+  <!-- Google AdSense (Auto ads) -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1896036129809749" crossorigin="anonymous"></script>
+
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Random AITA — Reader</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <script>
+    if ("serviceWorker" in navigator && !/localhost|127\.0\.0\.1/.test(location.hostname)) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/static/sw.js").catch(console.error);
+      });
+    }
+  </script>
+
+  <link rel="stylesheet" href="/static/styles.css?v=17">
+</head>
+<body>
+<main>
+  <header>
+    <div class="banner-container">
+      <img src="/static/img/random-aita-banner.png" alt="Random AITA" class="banner-image">
+    </div>
+    <!-- Desktop Navigation -->
+    <nav class="desktop-nav">
+      <button id="desktopTabSave" class="desktop-nav-btn active">Save</button>
+      <button id="desktopTabFav" class="desktop-nav-btn">Favorites</button>
+      <button id="desktopRandomBtn" class="desktop-random-btn">🎲 Random</button>
+      <button id="desktopTabShare" class="desktop-nav-btn">Share</button>
+      <button id="desktopTabSet" class="desktop-nav-btn">Settings</button>
+    </nav>
+  </header>
+
+  <article class="card" id="postCard">
+    <h2 id="title">Loading first story…</h2>
+
+    <!-- verdict strip (hidden until needed) -->
+    <div id="verdict" class="verdict" aria-live="polite"></div>
+
+    <!-- error strip (hidden until needed) -->
+    <div id="error" style="display:none;color:#b71c1c;background:#ffeaea;border:1px solid #f5b5b5;border-radius:10px;padding:8px 10px;margin:8px 0;"></div>
+
+    <p id="text" class="body"></p>
+
+    <div class="meta" id="meta"></div>
+
+    <div class="vote" id="voteBlock">
+      <button id="voteYTA">They're the Asshole (YTA)</button>
+      <button id="voteNTA">Not the Asshole (NTA)</button>
+      <button id="voteESH">Everyone Sucks Here (ESH)</button>
+      <span class="tally" id="tally"></span>
+    </div>
+
+    <!-- removed the small "Random" button here on purpose -->
+  </article>
+
+  <!-- Bottom tabs -->
+  <nav class="tabbar" role="tablist" aria-label="Navigation">
+    <button id="tabSave" class="tab active" role="tab" aria-selected="true">
+      <span class="tab-icon">★</span>
+      <span class="tab-label">Save</span>
+    </button>
+    <button id="tabFav" class="tab" role="tab" aria-selected="false">
+      <span class="tab-icon">★</span>
+      <span class="tab-label">Favs</span>
+    </button>
+    <button id="fabRandomBtn" class="tab tab-dice" role="button" aria-label="Random">
+      <img src="/static/img/dice.png" alt="Random" class="dice-icon">
+    </button>
+    <button id="tabShare" class="tab" role="tab" aria-selected="false">
+      <span class="tab-icon">🔗</span>
+      <span class="tab-label">Share</span>
+    </button>
+    <button id="tabSet" class="tab" role="tab" aria-selected="false">
+      <span class="tab-icon">⚙️</span>
+      <span class="tab-label">Settings</span>
+    </button>
+  </nav>
+
+  <!-- Panels -->
+  <section id="panelFavorites" class="panel" aria-hidden="true">
+    <h3>Favorites</h3>
+    <ul id="favoritesList" class="list"></ul>
+  </section>
+  <section id="panelHistory" class="panel" aria-hidden="true">
+    <h3>History</h3>
+    <ul id="historyList" class="list"></ul>
+  </section>
+  <section id="panelShare" class="panel" aria-hidden="true">
+    <h3>Share Post</h3>
+    <p style="margin-bottom:16px;">Share this post using your device's native sharing options.</p>
+    <button id="shareBtn" style="width:100%; padding:14px; background:#007AFF; color:#fff; border:none; border-radius:12px; font-size:1rem; font-weight:600; cursor:pointer;">Share Post</button>
+  </section>
+  <section id="panelSettings" class="panel" aria-hidden="true">
+    <h3>Settings</h3>
+    
+    <h4 class="settings-section-title">Content Filters</h4>
+    <div class="setting-row">
+      <label for="subreddit">Subreddit</label>
+      <select id="subredditSettings">
+        <option value="ALL">All (all subreddits)</option>
+        <option value="AmItheAsshole" selected>AmItheAsshole</option>
+        <option value="twohottakes">twohottakes</option>
+        <option value="AmIOverreacting">AmIOverreacting</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label for="sort">Sort</label>
+      <select id="sort">
+        <option value="all">All</option>
+        <option value="hot">Hot</option>
+        <option value="new">New</option>
+        <option value="top">Top</option>
+      </select>
+    </div>
+    <div class="setting-row" id="topRangeRow" style="display:none;">
+      <label for="topRange">Top posts from</label>
+      <select id="topRange">
+        <option value="hour">Now</option>
+        <option value="day">Today</option>
+        <option value="week" selected>This week</option>
+        <option value="month">This month</option>
+        <option value="year">This year</option>
+        <option value="all">All time</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label>
+        <input type="checkbox" id="nsfw">
+        Show NSFW content
+      </label>
+    </div>
+    
+    <h4 class="settings-section-title">Search</h4>
+    <div class="setting-row setting-row-search">
+      <input id="searchBox" type="text" placeholder="Keywords in title or text" style="flex:1; padding:8px 12px; border:1px solid #ddd; border-radius:8px;">
+      <button id="searchBtn" style="padding:8px 16px; border:1px solid #ddd; background:#fff; border-radius:8px; cursor:pointer; white-space:nowrap;">Search</button>
+    </div>
+    
+    <h4 class="settings-section-title">Display Preferences</h4>
+    <div class="setting-row">
+      <label>
+        <input type="checkbox" id="setDefaultNSFW">
+        Default to Show NSFW
+      </label>
+    </div>
+    <div class="setting-row">
+      <label for="setTextSize">Text size</label>
+      <input type="range" id="setTextSize" min="14" max="22" step="1">
+      <span id="textSizeVal"></span>
+    </div>
+    <div class="setting-row">
+      <label for="setDefaultSub">Default subreddit</label>
+      <select id="setDefaultSub">
+        <option value="AmItheAsshole">AmItheAsshole</option>
+        <option value="twohottakes">twohottakes</option>
+        <option value="AmIOverreacting">AmIOverreacting</option>
+        <option value="ALL">All (all subreddits)</option>
+      </select>
+    </div>
+    
+    <h4 class="settings-section-title">Actions</h4>
+    <div class="setting-row">
+      <a id="openLink" target="_blank" rel="noopener" style="display:block; width:100%;">
+        <button type="button" style="width:100%; padding:10px 16px; border:1px solid #ddd; background:#fff; border-radius:8px; cursor:pointer;">Open Current Post on Reddit</button>
+      </a>
+    </div>
+    <div class="setting-row">
+      <button id="btnClearData">Clear local data</button>
+    </div>
+  </section>
+
+  <!-- Note modal - removed since Note button is gone -->
+  <div id="noteModal" class="modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="noteTitle" style="display:none;">
+    <div class="modal-content">
+      <h3 id="noteTitle">Personal note</h3>
+      <textarea id="noteText" rows="6" placeholder="Write your thoughts…"></textarea>
+      <div class="modal-actions">
+        <button id="noteCancel">Cancel</button>
+        <button id="noteSave">Save Note</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/static/app.js?v=43"></script>
+</body>
+</html>
+

@@ -19,7 +19,6 @@
   },
   "homepage": "https://github.com/r0bay/aitaroulette#readme",
   "dependencies": {
-    "@capacitor-community/admob": "^7.2.0",
     "@capacitor/core": "^6.0.0",
     "@capacitor/ios": "^6.0.0",
     "express": "^4.21.2",

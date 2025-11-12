@@ -152,3 +152,7 @@ If the above seems complex, Codemagic has a "Flutter/Capacitor" template you can
 
 
 
+
+
+
+

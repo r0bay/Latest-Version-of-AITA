@@ -1,51 +1,13 @@
+platform :ios, '14.0'
+use_frameworks! :linkage => :static
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-platform :ios, '14.0'
-use_modular_headers!
-use_frameworks! :linkage => :static
-install! 'cocoapods', :deterministic_uuids => true
-
-# Use Capacitor's official pods helper (do NOT require cordova podHelpers)
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
 target 'App' do
-  # Local plugin (bypass spec repo)
-  pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
-
-  # Pull in Capacitor pods
   capacitor_pods
-
-  # Keep this if you have Cordova plugins installed via Capacitor
-  require_relative '../../node_modules/@capacitor/ios/scripts/cordova_pods'
-  cordova_pods
 end
 
 post_install do |installer|
-  # Global pod build settings
-  installer.pods_project.targets.each do |t|
-    t.build_configurations.each do |cfg|
-      cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      cfg.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
-      cfg.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
-      cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-      # Force Swift 5.9 to avoid Swift 6 breakages
-      cfg.build_settings['SWIFT_VERSION'] = '5.9'
-      cfg.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-    end
-  end
-
-  # Also stamp the App.xcodeproj with Swift 5.9 / iOS 14 (for safety)
-  app_project_path = File.join(__dir__, 'App.xcodeproj')
-  if File.exist?(app_project_path)
-    require 'xcodeproj'
-    xproj = Xcodeproj::Project.open(app_project_path)
-    xproj.targets.each do |t|
-      t.build_configurations.each do |cfg|
-        cfg.build_settings['SWIFT_VERSION'] = '5.9'
-        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-        cfg.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
-      end
-    end
-    xproj.save
-  end
+  assertDeploymentTarget(installer, '14.0')
 end
