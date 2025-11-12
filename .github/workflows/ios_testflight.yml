@@ -30,13 +30,22 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      - name: CocoaPods
+      # --- Force IPHONEOS_DEPLOYMENT_TARGET=14.0 in the Xcode project ---
+      - name: Hard-set iOS deployment target to 14.0
+        run: |
+          # Brute-force replace any IPHONEOS_DEPLOYMENT_TARGET to 14.0 in project file
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/App/App.xcodeproj/project.pbxproj
+          echo "✓ Forced IPHONEOS_DEPLOYMENT_TARGET = 14.0 in Xcode project"
+
+      - name: Install CocoaPods (clean + update)
         run: |
           sudo gem install cocoapods --no-document
           cd ios/App
-          pod repo update
-          pod install
+          rm -rf Pods Podfile.lock
+          pod deintegrate || true
+          pod install --clean-install --verbose --no-repo-update
           cd ../..
+          npx cap sync ios
 
       # --- Install signing material (p12 + provisioning profile) ---
       - name: Create build keychain & import certificate
@@ -223,32 +232,27 @@ PY
             exit 1
           fi
 
+      # --- Sanity build: compile only, no signing ---
       - name: Compile sanity build (no signing)
         run: |
           set -euo pipefail
-          : "${SCHEME:?SCHEME missing}"
-          : "${TEAM_ID:?TEAM_ID missing}"
-          : "${BUNDLE_ID:?BUNDLE_ID missing}"
-          echo "== Sanity build =="
-          echo "Workspace: ios/App/App.xcworkspace"
-          echo "Scheme:    $SCHEME"
-
-          # Clean + build WITHOUT signing to catch pure compile-time issues fast
-          set -o pipefail
-          xcodebuild \
-            -workspace ios/App/App.xcworkspace \
-            -scheme "${SCHEME:-App}" \
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            SWIFT_VERSION=5.9 \
-            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
-            ONLY_ACTIVE_ARCH=NO \
-            clean build | xcpretty || {
-              echo "=== FIRST 100 lines with 'error:' ==="
-              grep -nE "error:" -m 100 -nR DerivedData 2>/dev/null | head -100 || true
-              exit 1
-            }
+            build | tee /tmp/compile.log
+
+          # Show first errors fast if it fails
+          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+            echo "=== FIRST 30 'error:' lines ==="
+            grep -nE "error:" -m 30 /tmp/compile.log || true
+            echo "=== FIRST 10 '❌' lines ==="
+            grep -n "❌" -m 10 /tmp/compile.log || true
+            echo "=== TAIL 120 lines ==="
+            tail -120 /tmp/compile.log || true
+            exit 1
+          fi
           echo "✓ Sanity build passed (no signing). Proceeding to archive…"
 
       - name: Build & archive (manual signing, explicit identity)
@@ -276,23 +280,20 @@ PY
           mkdir -p "$ARCHIVE_DIR"
 
           set -o pipefail
-          /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild \
+          xcodebuild \
             -workspace ios/App/App.xcworkspace \
-            -scheme "${SCHEME:-App}" \
+            -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
+            archive \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
+            OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
             CODE_SIGN_IDENTITY="$DIST_IDENTITY" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
-            ENABLE_BITCODE=NO \
-            SWIFT_VERSION=5.9 \
-            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
-            ONLY_ACTIVE_ARCH=NO \
-            SKIP_INSTALL=NO \
-            clean archive | xcpretty
+            SKIP_INSTALL=NO ENABLE_BITCODE=NO
 
           echo "✓ Archive at: $ARCHIVE_PATH"
 
