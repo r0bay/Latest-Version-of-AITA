@@ -44,12 +44,23 @@ jobs:
           fi
           echo "✓ Cleaned AdMob/Cordova traces"
 
-      # --- Force IPHONEOS_DEPLOYMENT_TARGET=14.0 in the Xcode project ---
-      - name: Hard-set iOS deployment target to 14.0
+      # --- Force iOS 14.0 + Swift/linker settings across the project ---
+      - name: Hard-set iOS deployment target and Swift settings
         run: |
-          # Brute-force replace any IPHONEOS_DEPLOYMENT_TARGET to 14.0 in project file
-          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' ios/App/App.xcodeproj/project.pbxproj
-          echo "✓ Forced IPHONEOS_DEPLOYMENT_TARGET = 14.0 in Xcode project"
+          PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
+          
+          # iOS Deployment Target to 14.0 everywhere
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9][0-9]*\.[0-9]*/IPHONEOS_DEPLOYMENT_TARGET = 14.0/g' "$PBXPROJ"
+          
+          # Swift toolchain and embedding
+          grep -q 'SWIFT_VERSION' "$PBXPROJ" || echo "// SWIFT_VERSION added by CI" >> "$PBXPROJ"
+          sed -i '' 's/SWIFT_VERSION = [0-9.]\+/SWIFT_VERSION = 5.10/g' "$PBXPROJ"
+          sed -i '' 's/ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO/ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES/g' "$PBXPROJ"
+          
+          # Runpath search paths (safe defaults)
+          sed -i '' 's|LD_RUNPATH_SEARCH_PATHS = .*|LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";|g' "$PBXPROJ" || true
+          
+          echo "✓ Forced iOS 14.0, Swift 5.10, and linker settings in Xcode project"
 
       - name: Install CocoaPods (clean + update)
         run: |
@@ -281,9 +292,7 @@ PY
           echo "CODE_SIGN_IDENTITY=$DIST_IDENTITY"
           echo "Keychain: $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db"
 
-          ARCHIVE_DIR="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
-          ARCHIVE_PATH="$ARCHIVE_DIR/App-$(date +%H%M).xcarchive"
-          mkdir -p "$ARCHIVE_DIR"
+          ARCHIVE_PATH="$RUNNER_TEMP/App.xcarchive"
 
           set -o pipefail
           xcodebuild \

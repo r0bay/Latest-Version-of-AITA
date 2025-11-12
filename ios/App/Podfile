@@ -9,5 +9,16 @@ target 'App' do
 end
 
 post_install do |installer|
+  # Ensure all pods match iOS 14.0
   assertDeploymentTarget(installer, '14.0')
+
+  # Make builds reproducible and compatible on CI
+  installer.pods_project.targets.each do |t|
+    t.build_configurations.each do |config|
+      config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+      config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
+      # Avoid M1/M2 sim hiccups even though we archive for device
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+    end
+  end
 end
