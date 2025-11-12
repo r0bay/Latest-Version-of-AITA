@@ -3,9 +3,8 @@ use_frameworks! :linkage => :static
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 target 'App' do
-  # Explicit Capacitor pods (no helper needed)
-  pod 'Capacitor',        :path => '../../node_modules/@capacitor/ios'
-  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
+  # Explicit Capacitor pods (Capacitor depends on CapacitorCordova, so only declare Capacitor)
+  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
 end
 
 post_install do |installer|
