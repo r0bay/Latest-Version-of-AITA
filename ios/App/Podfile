@@ -1,52 +1,18 @@
-require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
-
 platform :ios, '14.0'
-use_frameworks!
 use_modular_headers!
 
-# Lock Pod repo CDN (prevents transient pod index issues)
-source 'https://cdn.cocoapods.org/'
-
-# workaround to avoid Xcode caching of Pods that requires
-# Product -> Clean Build Folder after new Cordova plugins installed
-# Requires CocoaPods 1.6 or newer
-install! 'cocoapods', :disable_input_output_paths => true
-
-def capacitor_pods
-  pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
-  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
-  pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
-end
+require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
 target 'App' do
   capacitor_pods
-  # DO NOT pin Google-Mobile-Ads-SDK here. It is pulled in by CapacitorCommunityAdmob (12.12.0).
-  # Other pods managed by Capacitor via Podfile generated hooks.
+  pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
+  pod 'Google-Mobile-Ads-SDK', '~> 12.12'
 end
 
 post_install do |installer|
-  assertDeploymentTarget(installer)
-  
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
-      # Baseline Pod build settings (safe defaults)
-      config.build_settings['SWIFT_VERSION'] = '5.0'
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-      config.build_settings['DEFINES_MODULE'] = 'YES'
-
-      # 🚫 Disable signing for all Pods
-      config.build_settings['CODE_SIGNING_ALLOWED']  = 'NO'
-      config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-      config.build_settings['CODE_SIGNING_IDENTITY'] = ''
-      config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ''
-      config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ''
-      config.build_settings['PROVISIONING_PROFILE'] = ''
     end
-  end
-  
-  # Fix main app target Swift settings
-  installer.pods_project.build_configurations.each do |config|
-    config.build_settings['SWIFT_VERSION'] = '5.0'
   end
 end

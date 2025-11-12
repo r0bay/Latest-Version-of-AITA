@@ -194,14 +194,10 @@ PY
 
       - name: Install CocoaPods (clean + update)
         run: |
-          set -euo pipefail
-          gem install cocoapods --no-document || true
           cd ios/App
-          pod --version
-          # Clean + reinstall to avoid stale lockfiles and module headers
-          pod deintegrate || true
           rm -rf Pods Podfile.lock
           pod repo update
+          pod deintegrate || true
           pod install --verbose
           cd ../..
 
