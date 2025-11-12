@@ -175,6 +175,23 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BN" ios/App/App/Info.plist
           echo "Build number -> $BN"
 
+      - name: Detect Xcode scheme (shared)
+        run: |
+          set -euo pipefail
+          SCHEMES_JSON="$(xcodebuild -list -json -workspace ios/App/App.xcworkspace)"
+          # Pick a scheme that contains "App" (most Capacitor templates do), otherwise first shared scheme
+          SCHEME="$(python3 - <<'PY'
+import json,sys,re
+j=json.loads(sys.stdin.read())
+schemes=j.get("workspace",{}).get("schemes",[])
+pref=[s for s in schemes if re.search(r"\bApp\b", s, re.I)]
+print((pref or schemes)[0] if schemes else "")
+PY
+<<<"$SCHEMES_JSON")"
+          [ -n "$SCHEME" ] || { echo "No shared schemes found. Make sure your app scheme is shared in Xcode."; exit 1; }
+          echo "Using scheme: $SCHEME"
+          echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
+
       - name: Install CocoaPods (clean + update)
         run: |
           set -euo pipefail
@@ -196,7 +213,7 @@ jobs:
           xcodebuild -list -workspace ios/App/App.xcworkspace
 
           echo "=== Show build settings ==="
-          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release -showBuildSettings > /tmp/showbuild.txt
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme "${SCHEME:-App}" -configuration Release -showBuildSettings > /tmp/showbuild.txt
 
           echo "=== Signing-related from project ==="
           egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' /tmp/showbuild.txt || true
@@ -226,7 +243,7 @@ jobs:
           set -o pipefail
           xcodebuild \
             -workspace ios/App/App.xcworkspace \
-            -scheme App \
+            -scheme "$SCHEME" \
             -configuration Release \
             -archivePath "$ARCHIVE_PATH" \
             -destination 'generic/platform=iOS' \
@@ -237,6 +254,8 @@ jobs:
             CODE_SIGN_IDENTITY="$DIST_IDENTITY" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
             OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
             ENABLE_BITCODE=NO \
             SKIP_INSTALL=NO \
             ONLY_ACTIVE_ARCH=NO \
@@ -252,12 +271,18 @@ jobs:
 
           echo "✓ Archive at: $ARCHIVE_PATH"
 
-          # Verify .app exists
+          # Export ARCHIVE_PATH to env for the packaging step
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
+
+      - name: Verify archived product
+        run: |
+          set -euo pipefail
           APP_DIR="$ARCHIVE_PATH/Products/Applications"
+          echo "Archive at: $ARCHIVE_PATH"
+          ls -la "$APP_DIR"
           APP_PATH="$(/bin/ls -1 "$APP_DIR"/*.app | head -1)"
-          if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: Archived .app not found"; exit 1
-          fi
+          [ -d "$APP_PATH" ] || { echo "ERROR: No .app found in $APP_DIR"; exit 1; }
+          echo "Found archived app: $APP_PATH"
 
           # Embed provisioning profile (defensive)
           if [ -f "/tmp/profile.mobileprovision" ]; then
@@ -268,9 +293,6 @@ jobs:
           security find-identity -p codesigning "$KEYCHAIN_NAME.keychain" || true
           echo "=== verify signature ==="
           codesign -vv "$APP_PATH" && echo "codesign OK"
-
-          # Export ARCHIVE_PATH to env for the packaging step
-          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
 
       # --- Package IPA manually (no ExportOptions) ---
       - name: Package IPA (no re-sign)
