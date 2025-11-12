@@ -448,15 +448,25 @@ workflows:
           rm -rf "$TMP_DIR"
           echo ""
           
+          # Find the real iTMSTransporter binary inside Xcode (avoid GUI launcher)
+          TRANSPORTER_BIN="$(/usr/bin/find /Applications -path "*/itms/bin/iTMSTransporter" -type f -perm -111 2>/dev/null | head -1)"
+          if [ -z "$TRANSPORTER_BIN" ]; then
+            echo "WARN: Could not locate Transporter in /Applications. Falling back to xcrun."
+            TRANSPORTER_BIN="iTMSTransporter"
+          else
+            echo "Using Transporter binary: $TRANSPORTER_BIN"
+          fi
+          
           # Upload
           echo "=== Uploading to TestFlight via iTMSTransporter ==="
           set -o pipefail
-          xcrun iTMSTransporter \
+          "$TRANSPORTER_BIN" \
             -m upload \
             -assetFile "$IPA_FILE" \
             -apiKey "$ASC_KEY_ID" \
             -apiIssuer "$ASC_ISSUER_ID" \
             -v informational \
+            -WONoPause true \
             2>&1 | tee /tmp/transporter.log || {
             echo ""
             echo "⚠ iTMSTransporter upload failed"
