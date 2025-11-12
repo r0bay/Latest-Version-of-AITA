@@ -158,11 +158,11 @@ jobs:
             -authenticationKeyPath "${HOME}/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
             -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
-            DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
-            PRODUCT_BUNDLE_IDENTIFIER="${{ secrets.BUNDLE_ID }}" \
+            DEVELOPMENT_TEAM="US86BZ3GH5" \
+            PRODUCT_BUNDLE_IDENTIFIER="app.randomaita.final" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ secrets.PROFILE_NAME }}" \
+            PROVISIONING_PROFILE_SPECIFIER="RandomAITAFinal_AppStore" \
             OTHER_CODE_SIGN_FLAGS="--keychain signing_temp.keychain" \
             clean archive | tee /tmp/archive.log
 
