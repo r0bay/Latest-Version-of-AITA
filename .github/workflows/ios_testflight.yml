@@ -215,14 +215,6 @@ PY
           echo "Using scheme: $SCHEME"
           echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
 
-      - name: Install CocoaPods (clean + update)
-        run: |
-          cd ios/App
-          rm -rf Pods Podfile.lock
-          pod deintegrate || true
-          pod install --clean-install --verbose --no-repo-update
-          cd ../..
-
       - name: Show build settings (signing)
         run: |
           set -euo pipefail
