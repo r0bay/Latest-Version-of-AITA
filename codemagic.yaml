@@ -448,14 +448,28 @@ workflows:
           rm -rf "$TMP_DIR"
           echo ""
           
-          # Find the real iTMSTransporter binary inside Xcode (avoid GUI launcher)
-          TRANSPORTER_BIN="$(/usr/bin/find /Applications -path "*/itms/bin/iTMSTransporter" -type f -perm -111 2>/dev/null | head -1)"
+          # Find the real iTMSTransporter binary (covers both Xcode and standalone Transporter.app)
+          TRANSPORTER_BIN="$(
+            /usr/bin/find /Applications -type f -perm -111 \
+              \( -path "*/iTMSTransporter" -o -path "*/itms/bin/iTMSTransporter" \) 2>/dev/null \
+            | head -1
+          )"
           if [ -z "$TRANSPORTER_BIN" ]; then
-            echo "WARN: Could not locate Transporter in /Applications. Falling back to xcrun."
+            echo "WARN: Could not locate Transporter binary; falling back to xcrun iTMSTransporter"
             TRANSPORTER_BIN="iTMSTransporter"
           else
             echo "Using Transporter binary: $TRANSPORTER_BIN"
           fi
+          
+          # Ensure headless mode & clean env just before calling Transporter
+          export LC_ALL=en_US.UTF-8
+          export LANG=en_US.UTF-8
+          export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+          
+          # Preflight sanity check
+          echo "Preflight: App record must exist in App Store Connect for bundle: $BUNDLE_ID"
+          echo "(If Transporter returns 'No suitable application record', create the app once in App Store Connect with bundle ID: $BUNDLE_ID)"
+          echo ""
           
           # Upload
           echo "=== Uploading to TestFlight via iTMSTransporter ==="
