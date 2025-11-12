@@ -30,29 +30,29 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Clean & sync Capacitor iOS, then clean install pods ---
-      - name: Clean and sync Capacitor iOS project
+      # --- Sync Capacitor & install pods (ensures helper exists) ---
+      - name: Sync Capacitor & install pods (ensures helper exists)
         run: |
           set -euo pipefail
-          cd ios/App
-
-          # ensure helper path exists
-          if [ ! -f "../../node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
-            echo "Installing node deps so pods_helpers.rb exists"
-            cd ../..
+          # Ensure node_modules exists so pods_helpers.rb is available
+          if [ ! -d "node_modules" ]; then
+            echo "node_modules missing — running npm ci"
             npm ci
-            cd ios/App
           fi
 
-          rm -rf Pods Podfile.lock
+          # Show whether the helper is present
+          ls -la node_modules/@capacitor/ios/scripts || true
+
+          # Fresh Capacitor sync to regenerate ios project + Podfile integration
           npx cap sync ios
 
-          # CocoaPods clean install
-          pod deintegrate || true
-          pod install --repo-update --clean-install --verbose
+          cd ios/App
+          rm -rf Pods Podfile.lock
+          # Do a clean install; no repo update needed for local pods
+          pod install --clean-install --verbose --no-repo-update
 
           cd ../..
-          echo "✓ Cleaned and synced Capacitor iOS project"
+          echo "✓ Synced Capacitor and installed pods"
 
       # --- Force iOS 14.0 + Swift/linker settings across the project ---
       - name: Hard-set iOS deployment target and Swift settings
