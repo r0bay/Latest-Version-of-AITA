@@ -46,7 +46,7 @@ jobs:
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
         run: |
           set -euo pipefail
-          KEYCHAIN=build.keychain
+          KEYCHAIN=signing_temp.keychain
           security create-keychain -p "" "$KEYCHAIN"
           security default-keychain -s "$KEYCHAIN"
           security unlock-keychain -p "" "$KEYCHAIN"
@@ -101,24 +101,78 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BN" ios/App/App/Info.plist
           echo "Build number -> $BN"
 
-      - name: Xcode archive
+      - name: Show build settings (signing)
         run: |
-          xcodebuild -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
+          set -euo pipefail
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release -showBuildSettings > /tmp/showbuild.txt
+          echo "=== Signing-related settings from project ==="
+          egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' /tmp/showbuild.txt || true
+
+          echo "=== Expected (from secrets) ==="
+          echo "TEAM_ID=$TEAM_ID"
+          echo "BUNDLE_ID=$BUNDLE_ID"
+          echo "PROFILE_NAME=$PROFILE_NAME"
+
+          # Guard: bundle id must match
+          if ! egrep -q "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID" /tmp/showbuild.txt; then
+            echo "ERROR: Project bundle id does not match BUNDLE_ID=$BUNDLE_ID"
+            exit 1
+          fi
+
+      - name: Build & archive (manual signing, explicit identity)
+        run: |
+          set -euo pipefail
+
+          KEYCHAIN_NAME="signing_temp"   # created earlier in your cert-import step
+          ARCHIVE_DIR="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
+          ARCHIVE_PATH="$ARCHIVE_DIR/App-$(date +%H%M).xcarchive"
+          mkdir -p "$ARCHIVE_DIR"
+
+          # Force modern identity & manual profile by name; pass keychain to codesign
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
             -archivePath "$ARCHIVE_PATH" \
-            -destination "generic/platform=iOS" \
+            archive \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}" \
-            OTHER_CODE_SIGN_FLAGS="--keychain build.keychain" \
-            clean archive | xcpretty && exit ${PIPESTATUS[0]}
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_NAME.keychain-db" \
+            ONLY_ACTIVE_ARCH=NO \
+            | tee /tmp/archive.log
+
+          echo "✓ Archive at: $ARCHIVE_PATH"
+
+          # Verify the archived app exists
+          APP_DIR="$ARCHIVE_PATH/Products/Applications"
+          APP_PATH="$(/bin/ls -1 "$APP_DIR"/*.app | head -1)"
+          if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Archived .app not found"; exit 1
+          fi
+
+          # Embed the provisioning profile by name (defensive)
+          if [ -f "/tmp/profile.mobileprovision" ]; then
+            cp -f "/tmp/profile.mobileprovision" "$APP_PATH/embedded.mobileprovision"
+          fi
+
+          # Quick post-archive signing sanity
+          echo "=== codesign identities in keychain ==="
+          security find-identity -p codesigning "$KEYCHAIN_NAME.keychain" || true
+          echo "=== verify signature ==="
+          codesign -vv "$APP_PATH" && echo "codesign OK"
+
+          # Export ARCHIVE_PATH for next step
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> $GITHUB_ENV
 
       # --- Package IPA manually (no ExportOptions) ---
       - name: Package IPA (no re-sign)
         run: |
           set -euo pipefail
+          # Use ARCHIVE_PATH from previous step or fallback
+          ARCHIVE_PATH="${ARCHIVE_PATH:-$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)/App-$(date +%H%M).xcarchive}"
           APP_DIR="$ARCHIVE_PATH/Products/Applications"
           APP_PATH="$(/bin/ls -1 "$APP_DIR"/*.app | head -1)"
           echo "Found app: $APP_PATH"
