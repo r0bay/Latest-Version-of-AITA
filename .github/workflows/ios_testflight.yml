@@ -30,11 +30,28 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Clean iOS native dir and resync from web assets ---
+      # --- Clean & sync Capacitor iOS, then clean install pods ---
       - name: Clean and sync Capacitor iOS project
         run: |
-          rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
+          set -euo pipefail
+          cd ios/App
+
+          # ensure helper path exists
+          if [ ! -f "../../node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
+            echo "Installing node deps so pods_helpers.rb exists"
+            cd ../..
+            npm ci
+            cd ios/App
+          fi
+
+          rm -rf Pods Podfile.lock
           npx cap sync ios
+
+          # CocoaPods clean install
+          pod deintegrate || true
+          pod install --repo-update --clean-install --verbose
+
+          cd ../..
           echo "✓ Cleaned and synced Capacitor iOS project"
 
       # --- Force iOS 14.0 + Swift/linker settings across the project ---
@@ -54,13 +71,6 @@ jobs:
           sed -i '' 's|LD_RUNPATH_SEARCH_PATHS = .*|LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";|g' "$PBXPROJ" || true
           
           echo "✓ Forced iOS 14.0, Swift 5.10, and linker settings in Xcode project"
-
-      - name: Install CocoaPods (clean install)
-        run: |
-          sudo gem install cocoapods --no-document
-          cd ios/App
-          pod install --clean-install --verbose --no-repo-update
-          cd ../..
 
       # --- Force bundle ID in Xcode project ---
       - name: Force bundle ID
@@ -249,30 +259,38 @@ PY
             exit 1
           fi
 
-      # --- Compile sanity build without signing (fast feedback) ---
+      # --- Build (compile-only) sanity check ---
       - name: Compile sanity build (no signing)
         run: |
           set -euo pipefail
-          set -o pipefail
-          
-          SCHEME=$(
-            xcodebuild -workspace ios/App/App.xcworkspace -list -json | \
-            /usr/bin/python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("workspace",{}).get("schemes") or ["App"])[0])'
-          )
-          
+          cd ios/App
+
+          # Detect shared scheme
+          SCHEME=$(xcodebuild -list -json 2>/dev/null | /usr/bin/python3 - <<'PY'
+import json,sys
+j=json.load(sys.stdin)
+schemes = j.get("project",{}).get("targets",[]) + j.get("project",{}).get("schemes",[])
+cands=[s for s in schemes if "App" in s] or schemes
+print(cands[0] if cands else "App")
+PY
+)
+          echo "Using scheme: $SCHEME"
+
           xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+            -workspace App.xcworkspace \
             -scheme "$SCHEME" \
             -configuration Release \
-            -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO | tee /tmp/compile.log
-          
-          # If it fails, surface the first errors nicely:
-          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-            echo "=== FIRST 30 'error:' lines ==="
-            grep -m 30 -nE "error: " /tmp/compile.log || true
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            | tee /tmp/compile.log || true
+
+          # Surface first errors clearly
+          grep -m 30 -E "^error: " /tmp/compile.log || true
+          if grep -q "^error: " /tmp/compile.log; then
             exit 1
           fi
+          cd ../..
           echo "✓ Sanity build passed (no signing). Proceeding to archive…"
 
       # --- Resolve distribution identity from the temp keychain ---
@@ -295,6 +313,7 @@ PY
             exit 1
           fi
 
+      # --- Archive with manual signing ---
       - name: Build & archive (manual signing, explicit identity)
         run: |
           set -euo pipefail
@@ -302,45 +321,66 @@ PY
           : "${BUNDLE_ID:?}"
           : "${PROFILE_UUID:?}"
           : "${DIST_IDENTITY:?}"
+          : "${KEYCHAIN_NAME:?}"
 
-          KEYCHAIN_NAME="${KEYCHAIN_NAME:-signing_temp}"
-          
-          # Detect scheme
-          SCHEME=$(
-            xcodebuild -workspace ios/App/App.xcworkspace -list -json | \
-            /usr/bin/python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("workspace",{}).get("schemes") or ["App"])[0])'
-          )
+          cd ios/App
 
-          ARCHIVE_PATH="$RUNNER_TEMP/App.xcarchive"
+          DERIVED="$RUNNER_TEMP/DerivedData"
+          rm -rf "$DERIVED"
+          mkdir -p "$DERIVED"
 
-          set -o pipefail
+          echo "Signing triplet:"
+          echo "  TEAM_ID=$TEAM_ID"
+          echo "  BUNDLE_ID=$BUNDLE_ID"
+          echo "  PROFILE_UUID=$PROFILE_UUID"
+          echo "  DIST_IDENTITY=$DIST_IDENTITY"
+          echo "  KEYCHAIN=$HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db"
+
+          # Detect scheme again
+          SCHEME=$(xcodebuild -list -json 2>/dev/null | /usr/bin/python3 - <<'PY'
+import json,sys
+j=json.load(sys.stdin)
+schemes = j.get("project",{}).get("targets",[]) + j.get("project",{}).get("schemes",[])
+cands=[s for s in schemes if "App" in s] or schemes
+print(cands[0] if cands else "App")
+PY
+)
+
+          ARCHIVE_PATH="$RUNNER_TEMP/App-$(date +%H%M%S).xcarchive"
+
+          # Force manual signing on the App target
           xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+            -workspace App.xcworkspace \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="$DIST_IDENTITY" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
             OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
             ENABLE_BITCODE=NO \
             SKIP_INSTALL=NO \
             archive | tee /tmp/archive.log
 
-          # Verify the archived .app exists
-          APP_PATH="$ARCHIVE_PATH/Products/Applications/$(/bin/ls -1 "$ARCHIVE_PATH/Products/Applications" | head -1)"
-          [ -d "$APP_PATH" ] || { echo "ERROR: Archived .app not found"; exit 1; }
-
-          # Embed the same provisioning profile into the archived app (belt & suspenders)
-          cp "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" "$APP_PATH/embedded.mobileprovision"
-          codesign -vv "$APP_PATH"
-
-          echo "✓ Archive at: $ARCHIVE_PATH"
           echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
-          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+          # Verify .app exists
+          APPDIR="$ARCHIVE_PATH/Products/Applications"
+          APP_PATH=$(ls -1 "$APPDIR"/*.app | head -1)
+          [ -d "$APP_PATH" ] || { echo "No .app in archive"; exit 1; }
+
+          # Verify codesign & profile
+          codesign -vv "$APP_PATH"
+          if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
+            security cms -D -i "$APP_PATH/embedded.mobileprovision" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin
+          fi
+
+          cd ../..
+          echo "✓ Archive at: $ARCHIVE_PATH"
 
       - name: Verify archived product
         run: |
@@ -362,26 +402,36 @@ PY
           echo "=== verify signature ==="
           codesign -vv "$APP_PATH" && echo "codesign OK"
 
-      # --- Manual IPA packaging (no ExportOptions, no re-sign) ---
+      # --- Manual IPA packaging (no ExportOptions) ---
       - name: Package IPA (no re-sign)
         run: |
           set -euo pipefail
           : "${ARCHIVE_PATH:?ARCHIVE_PATH not set}"
-          : "${APP_PATH:?APP_PATH not set}"
           
-          IPA_DIR="$RUNNER_TEMP/ipa"
-          rm -rf "$IPA_DIR" && mkdir -p "$IPA_DIR/Payload"
-          cp -R "$APP_PATH" "$IPA_DIR/Payload/"
+          IPA_OUT="$RUNNER_TEMP/ipa"
+          mkdir -p "$IPA_OUT"
 
-          # Optional: include SwiftSupport if you want (safe to skip on modern uploads)
+          APPDIR="$ARCHIVE_PATH/Products/Applications"
+          APP_PATH=$(ls -1 "$APPDIR"/*.app | head -1)
+          [ -d "$APP_PATH" ] || { echo "No .app to package"; exit 1; }
+
+          PKG_DIR="$RUNNER_TEMP/payload_root"
+          rm -rf "$PKG_DIR"
+          mkdir -p "$PKG_DIR/Payload"
+          cp -R "$APP_PATH" "$PKG_DIR/Payload/"
+
+          # Optional SwiftSupport if present
           if [ -d "$ARCHIVE_PATH/SwiftSupport" ]; then
-            cp -R "$ARCHIVE_PATH/SwiftSupport" "$IPA_DIR/"
+            cp -R "$ARCHIVE_PATH/SwiftSupport" "$PKG_DIR/"
           fi
 
-          cd "$IPA_DIR"
-          zip -qry App.ipa Payload SwiftSupport 2>/dev/null || zip -qry App.ipa Payload
-          echo "✓ IPA created at: $IPA_DIR/App.ipa"
-          echo "IPA_DIR=$IPA_DIR" >> "$GITHUB_ENV"
+          pushd "$PKG_DIR" >/dev/null
+          zip -qry "$IPA_OUT/App.ipa" .
+          popd >/dev/null
+
+          echo "IPA_FILE=$IPA_OUT/App.ipa" >> "$GITHUB_ENV"
+          ls -lh "$IPA_OUT/App.ipa"
+          echo "✓ IPA created at: $IPA_OUT/App.ipa"
 
       # --- Upload to TestFlight (Transporter if present, else Fastlane) ---
       - name: Upload to TestFlight
@@ -391,7 +441,7 @@ PY
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: |
           set -euo pipefail
-          IPA_FILE="${IPA_DIR}/App.ipa"
+          : "${IPA_FILE:?IPA_FILE not set}"
           [ -f "$IPA_FILE" ] || { echo "ERROR: IPA missing"; exit 1; }
 
           # Write .p8 from secret
