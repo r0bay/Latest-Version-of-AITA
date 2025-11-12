@@ -30,33 +30,31 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Ensure node_modules, sync Capacitor, and install pods (bundler) ---
-      - name: Ensure node_modules, sync Capacitor, and install pods (bundler)
+      # --- Clean & sync Capacitor, then install Pods ---
+      - name: Clean & sync Capacitor, then install Pods
         run: |
           set -euo pipefail
+          # Ensure Node deps (provides node_modules/@capacitor/ios)
           if [ ! -d "node_modules" ]; then
-            echo "node_modules missing — running npm ci"
             npm ci
           fi
 
-          # Make sure Capacitor iOS project & helper exist
+          # Clean native iOS artifacts to avoid stale state
+          rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
+
+          # Copy web assets and refresh native iOS project
           npx cap sync ios
 
-          # Show helper presence
-          ls -la node_modules/@capacitor/ios/scripts || true
+          # Install pods (no helper needed because Podfile is explicit)
+          pushd ios/App
+            bundle config set path 'vendor/bundle' || true
+            gem install cocoapods -v '~>1.15.2' --no-document || true
+            bundle exec pod install --clean-install --verbose --no-repo-update || pod install --clean-install --verbose --no-repo-update
+          popd
 
-          # Use Bundler-pinned CocoaPods for consistent resolution
-          gem install bundler --no-document
-          bundle config set path 'vendor/bundle'
-          bundle install --jobs 4
-
-          cd ios/App
-          rm -rf Pods Podfile.lock
-          # Clean install; allow repo update because Capacitor podspec may reference trunk
-          bundle exec pod install --repo-update --clean-install --verbose
-
-          cd ../..
-          echo "✓ Synced Capacitor and installed pods via Bundler"
+          # Sanity: list workspace schemes
+          xcodebuild -workspace ios/App/App.xcworkspace -list
+          echo "✓ Synced Capacitor and installed pods"
 
       # --- Ensure shared Xcode scheme "App" ---
       - name: Ensure shared Xcode scheme "App"
