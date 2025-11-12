@@ -81,31 +81,55 @@ jobs:
           # Verify key is usable
           security find-identity -p codesigning "$KEYCHAIN" || true
 
-      - name: Install provisioning profile
+      - name: Install provisioning profile (system location)
         shell: bash
         env:
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          printf %s "$MOBILEPROVISION_BASE64" | base64 --decode > /tmp/profile.mobileprovision
-          PROFILE_PLIST=$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$PROFILE_PLIST")
-          echo "Using provisioning profile UUID: $PROFILE_UUID"
-          cp /tmp/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          : "${MOBILEPROVISION_BASE64:?MOBILEPROVISION_BASE64 not set}"
 
-      - name: Resolve signing profile UUID + dist identity
-        run: |
-          set -euo pipefail
+          # Decode to temp
+          PROV_TMP="/tmp/profile.mobileprovision"
+          printf '%s' "$MOBILEPROVISION_BASE64" | base64 --decode > "$PROV_TMP"
 
-          # Extract UUID and Name from the installed provisioning profile
-          PROFILE_PLIST="$(/usr/bin/security cms -D -i /tmp/profile.mobileprovision)"
+          # Read UUID + Name
+          PROFILE_PLIST="$(/usr/bin/security cms -D -i "$PROV_TMP")"
           PROFILE_UUID="$(
             /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<<"$PROFILE_PLIST"
           )"
           PROFILE_NAME="$(
             /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$PROFILE_PLIST"
           )"
+
+          # Install into Xcode's expected directory
+          DEST_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$DEST_DIR"
+          DEST_PATH="$DEST_DIR/$PROFILE_UUID.mobileprovision"
+          cp -f "$PROV_TMP" "$DEST_PATH"
+
+          echo "Installed profile:"
+          echo "  Name: $PROFILE_NAME"
+          echo "  UUID: $PROFILE_UUID"
+          echo "  Path: $DEST_PATH"
+
+          # Export values for downstream steps (reused by resolve/sign/archive)
+          {
+            echo "PROFILE_UUID=$PROFILE_UUID"
+            echo "PROFILE_NAME=$PROFILE_NAME"
+            echo "PROFILE_PATH=$DEST_PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve signing profile UUID + dist identity
+        run: |
+          set -euo pipefail
+
+          # Use exported values from previous step
+          : "${PROFILE_UUID:?PROFILE_UUID not set}"
+          : "${PROFILE_NAME:?PROFILE_NAME not set}"
+
+          # Read team from the installed profile
+          PROFILE_PLIST="$(/usr/bin/security cms -D -i "$PROFILE_PATH")"
           TEAM_FROM_PROFILE="$(
             /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' /dev/stdin <<<"$PROFILE_PLIST"
           )"
@@ -211,7 +235,7 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="$DIST_IDENTITY" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_NAME.keychain-db" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
             ONLY_ACTIVE_ARCH=NO \
             | tee /tmp/archive.log || {
               echo "=== FIRST 100 lines with 'error:' from archive log ==="
