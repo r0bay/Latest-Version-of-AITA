@@ -259,39 +259,52 @@ PY
             exit 1
           fi
 
-      # --- Build (compile-only) sanity check ---
-      - name: Compile sanity build (no signing)
+      # --- Compile sanity build (no signing, force settings, show first errors) ---
+      - name: Compile sanity build (no signing, force settings, show first errors)
         run: |
           set -euo pipefail
-          cd ios/App
 
-          # Detect shared scheme
-          SCHEME=$(xcodebuild -list -json 2>/dev/null | /usr/bin/python3 - <<'PY'
-import json,sys
-j=json.load(sys.stdin)
-schemes = j.get("project",{}).get("targets",[]) + j.get("project",{}).get("schemes",[])
-cands=[s for s in schemes if "App" in s] or schemes
-print(cands[0] if cands else "App")
-PY
-)
+          # Detect scheme (workspace)
+          SCHEME="$(xcodebuild -workspace ios/App/App.xcworkspace -list -json \
+            | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts (j["workspace"] ? j["workspace"]["schemes"][0] : j["project"]["schemes"][0])')"
+
           echo "Using scheme: $SCHEME"
 
+          # Clean build dir to avoid stale artifacts
+          rm -rf build_sanity
+          mkdir -p build_sanity
+
+          # Build WITHOUT signing, but force typical stability flags
+          set +e
           xcodebuild \
-            -workspace App.xcworkspace \
+            -workspace ios/App/App.xcworkspace \
             -scheme "$SCHEME" \
             -configuration Release \
+            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            | tee /tmp/compile.log || true
+            SWIFT_VERSION=5.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
+            ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
+            ENABLE_BITCODE=NO \
+            build | tee build_sanity/log.txt
+          BUILD_STATUS=$?
+          set -e
 
-          # Surface first errors clearly
-          grep -m 30 -E "^error: " /tmp/compile.log || true
-          if grep -q "^error: " /tmp/compile.log; then
+          echo "=== FIRST 30 lines matching 'error:' ==="
+          grep -nE "error:" -m 30 build_sanity/log.txt || true
+          echo "=== FIRST 10 lines with '❌' ==="
+          grep -n "❌" -m 10 build_sanity/log.txt || true
+          echo "=== TAIL 120 lines ==="
+          tail -n 120 build_sanity/log.txt || true
+
+          if [ $BUILD_STATUS -ne 0 ]; then
+            echo "Sanity compile failed (expected if there is a genuine code/config error)."
             exit 1
           fi
-          cd ../..
-          echo "✓ Sanity build passed (no signing). Proceeding to archive…"
+
+          echo "Sanity compile passed."
 
       # --- Resolve distribution identity from the temp keychain ---
       - name: Resolve distribution identity
@@ -313,44 +326,24 @@ PY
             exit 1
           fi
 
-      # --- Archive with manual signing ---
-      - name: Build & archive (manual signing, explicit identity)
+      # --- Archive with manual signing (simple, explicit flags) ---
+      - name: Build & archive (manual settings, explicit flags)
+        env:
+          KEYCHAIN_NAME: signing_temp
         run: |
           set -euo pipefail
           : "${TEAM_ID:?}"
           : "${BUNDLE_ID:?}"
           : "${PROFILE_UUID:?}"
           : "${DIST_IDENTITY:?}"
-          : "${KEYCHAIN_NAME:?}"
 
-          cd ios/App
+          SCHEME="$(xcodebuild -workspace ios/App/App.xcworkspace -list -json \
+            | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts (j["workspace"] ? j["workspace"]["schemes"][0] : j["project"]["schemes"][0])')"
 
-          DERIVED="$RUNNER_TEMP/DerivedData"
-          rm -rf "$DERIVED"
-          mkdir -p "$DERIVED"
+          ARCHIVE_PATH="$RUNNER_TEMP/App.xcarchive"
 
-          echo "Signing triplet:"
-          echo "  TEAM_ID=$TEAM_ID"
-          echo "  BUNDLE_ID=$BUNDLE_ID"
-          echo "  PROFILE_UUID=$PROFILE_UUID"
-          echo "  DIST_IDENTITY=$DIST_IDENTITY"
-          echo "  KEYCHAIN=$HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db"
-
-          # Detect scheme again
-          SCHEME=$(xcodebuild -list -json 2>/dev/null | /usr/bin/python3 - <<'PY'
-import json,sys
-j=json.load(sys.stdin)
-schemes = j.get("project",{}).get("targets",[]) + j.get("project",{}).get("schemes",[])
-cands=[s for s in schemes if "App" in s] or schemes
-print(cands[0] if cands else "App")
-PY
-)
-
-          ARCHIVE_PATH="$RUNNER_TEMP/App-$(date +%H%M%S).xcarchive"
-
-          # Force manual signing on the App target
           xcodebuild \
-            -workspace App.xcworkspace \
+            -workspace ios/App/App.xcworkspace \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
@@ -359,13 +352,16 @@ PY
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             CODE_SIGN_IDENTITY="$DIST_IDENTITY" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
+            SWIFT_VERSION=5.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
+            ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
+            ENABLE_BITCODE=NO \
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=YES \
-            ENABLE_BITCODE=NO \
-            SKIP_INSTALL=NO \
-            archive | tee /tmp/archive.log
+            OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/$KEYCHAIN_NAME.keychain-db" \
+            archive | tee archive_log.txt
 
+          echo "Archive finished: $ARCHIVE_PATH"
           echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
 
           # Verify .app exists
@@ -378,9 +374,6 @@ PY
           if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
             security cms -D -i "$APP_PATH/embedded.mobileprovision" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin
           fi
-
-          cd ../..
-          echo "✓ Archive at: $ARCHIVE_PATH"
 
       - name: Verify archived product
         run: |
