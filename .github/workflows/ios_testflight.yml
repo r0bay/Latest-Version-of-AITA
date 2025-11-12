@@ -198,7 +198,7 @@ PY
           rm -rf Pods Podfile.lock
           pod repo update
           pod deintegrate || true
-          pod install --repo-update --clean-install --verbose
+          pod install --clean-install --verbose --no-repo-update
           cd ../..
 
       - name: Show build settings (signing)
