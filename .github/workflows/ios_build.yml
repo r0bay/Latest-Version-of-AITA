@@ -72,35 +72,35 @@ jobs:
           CERT_SIZE=$(wc -c < "$CERT_FILE" | tr -d ' ')
           echo "Certificate file size: $CERT_SIZE bytes"
           
-          # Verify certificate file is valid PKCS12
-          file "$CERT_FILE" || echo "Warning: file command not available"
+          # --- PRECHECK: prove password is correct and extract cert+key ---
+          if ! openssl pkcs12 -in "$CERT_FILE" -passin "pass:${CERT_PASSWORD}" -info -nokeys >/dev/null 2>&1; then
+            echo "ERROR: p12 password is incorrect or file is corrupt (OpenSSL check failed)."
+            exit 1
+          fi
           
-          # Import certificate - use pass: prefix for password
-          echo "Importing certificate (password length: ${#CERT_PASSWORD})"
-          /usr/bin/security import "$CERT_FILE" \
-            -k "$KEYCHAIN_NAME" \
-            -f pkcs12 \
-            -A \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security \
-            -P "$CERT_PASSWORD" \
-            2>&1 || {
-              echo "ERROR: Failed to import certificate"
-              echo "Troubleshooting info:"
-              echo "  Certificate size: $CERT_SIZE bytes"
-              echo "  Password length: ${#CERT_PASSWORD} characters"
-              echo "  Password first char: ${CERT_PASSWORD:0:1}"
-              echo "  Password last char: ${CERT_PASSWORD: -1}"
-              echo "  Keychain: $KEYCHAIN_PATH"
-              exit 1
-            }
+          # Extract leaf certificate and private key from the P12
+          openssl pkcs12 -in "$CERT_FILE" -passin "pass:${CERT_PASSWORD}" -clcerts -nokeys -out /tmp/dist_cert.cer
+          openssl pkcs12 -in "$CERT_FILE" -passin "pass:${CERT_PASSWORD}" -nocerts -nodes -out /tmp/dist_key.pem
           
-          # List certificates to verify import
+          # Sanity: show subjects (no secrets printed)
+          openssl x509 -in /tmp/dist_cert.cer -noout -subject || true
+          
+          # --- IMPORT via PEM (avoids PKCS#12 MAC verification issues) ---
+          # Import certificate
+          /usr/bin/security import /tmp/dist_cert.cer -k "$KEYCHAIN_NAME" -A -t cert -f x509
+          
+          # Import private key (no password on PEM because we used -nodes)
+          /usr/bin/security import /tmp/dist_key.pem -k "$KEYCHAIN_NAME" -A -t priv
+          
+          # Allow codesign/xcodebuild to use the key
+          /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN_NAME"
+          
+          # Verify key is usable
           echo "Verifying certificate import..."
           /usr/bin/security find-identity -v -p codesigning "$KEYCHAIN_NAME" || echo "Warning: Could not list identities"
           
-          # Clean up temp file
-          rm -f "$CERT_FILE"
+          # Clean up temp files
+          rm -f "$CERT_FILE" /tmp/dist_cert.cer /tmp/dist_key.pem
           
           echo "✓ Certificate imported successfully to $KEYCHAIN_NAME"
 
