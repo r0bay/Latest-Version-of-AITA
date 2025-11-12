@@ -30,6 +30,20 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
+      # --- Nuke any lingering AdMob/Cordova code ---
+      - name: Clean AdMob/Cordova traces
+        run: |
+          # Ensure no stale imports/calls
+          sed -i '' '/import GoogleMobileAds/d' ios/App/App/AppDelegate.swift || true
+          sed -i '' '/MobileAds\.shared\.start/d' ios/App/App/AppDelegate.swift || true
+          
+          # Ensure no Cordova helpers referenced in Podfile
+          if grep -q "capacitor-cordova-ios-plugins" ios/App/Podfile; then
+            echo "ERROR: Remove Cordova lines from Podfile"
+            exit 1
+          fi
+          echo "✓ Cleaned AdMob/Cordova traces"
+
       # --- Force IPHONEOS_DEPLOYMENT_TARGET=14.0 in the Xcode project ---
       - name: Hard-set iOS deployment target to 14.0
         run: |
