@@ -56,93 +56,16 @@ jobs:
           xcodebuild -workspace ios/App/App.xcworkspace -list
           echo "✓ Synced Capacitor and installed pods"
 
-      # --- Ensure shared Xcode scheme "App" ---
-      - name: Ensure shared Xcode scheme "App"
+      # --- Ensure shared Xcode scheme "App" exists ---
+      - name: Verify shared Xcode scheme
         run: |
           set -euo pipefail
-          SCHEMES_DIR="ios/App/App.xcodeproj/xcshareddata/xcschemes"
-          mkdir -p "$SCHEMES_DIR"
-          SCHEME_FILE="$SCHEMES_DIR/App.xcscheme"
-
+          SCHEME_FILE="ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme"
           if [ ! -f "$SCHEME_FILE" ]; then
-            cat > "$SCHEME_FILE" <<'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<Scheme
-   LastUpgradeVersion = "1600"
-   version = "1.7">
-   <BuildAction
-      parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES">
-      <BuildActionEntries>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintName = "App"
-               BuildableName = "App.app"
-               ReferencedContainer = "container:App.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-      </BuildActionEntries>
-   </BuildAction>
-   <TestAction
-      buildConfiguration = "Release"
-      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
-      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES">
-   </TestAction>
-   <LaunchAction
-      buildConfiguration = "Release"
-      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
-      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      launchStyle = "0"
-      useCustomWorkingDirectory = "NO"
-      ignoresPersistentStateOnLaunch = "NO"
-      debugDocumentVersioning = "YES"
-      debugServiceExtension = "internal"
-      allowLocationSimulation = "YES">
-      <BuildableProductRunnable runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintName = "App"
-            BuildableName = "App.app"
-            ReferencedContainer = "container:App.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </LaunchAction>
-   <ProfileAction
-      buildConfiguration = "Release"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      savedToolIdentifier = ""
-      useCustomWorkingDirectory = "NO"
-      debugDocumentVersioning = "YES">
-      <BuildableProductRunnable runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintName = "App"
-            BuildableName = "App.app"
-            ReferencedContainer = "container:App.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </ProfileAction>
-   <AnalyzeAction
-      buildConfiguration = "Release">
-   </AnalyzeAction>
-   <ArchiveAction
-      buildConfiguration = "Release"
-      revealArchiveInOrganizer = "YES">
-   </ArchiveAction>
-</Scheme>
-XML
-            echo "Created shared scheme at $SCHEME_FILE"
+            echo "WARN: Shared scheme not found at $SCHEME_FILE (should be created by workflow step)"
           else
-            echo "Shared scheme already exists at $SCHEME_FILE"
+            echo "✓ Shared scheme exists at $SCHEME_FILE"
           fi
-
           echo "Schemes in workspace:"
           xcodebuild -workspace ios/App/App.xcworkspace -list
 
@@ -351,42 +274,60 @@ PY
             exit 1
           fi
 
-      # --- Compile sanity build (no signing, force settings, show first errors) ---
-      - name: Compile sanity build (no signing, force settings, show first errors)
+      # --- Compile sanity build (no signing, simulator) ---
+      - name: Compile sanity build (no signing, simulator)
+        shell: bash
         run: |
           set -euo pipefail
-          SCHEME="$(xcodebuild -workspace ios/App/App.xcworkspace -list -json \
-            | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts (j["workspace"] ? j["workspace"]["schemes"][0] : j["project"]["schemes"][0])')"
+
+          # Detect scheme robustly (falls back to "App")
+          SCHEME_JSON=$(xcodebuild -workspace ios/App/App.xcworkspace -list -json || true)
+          SCHEME=$(ruby -e '
+            require "json"
+            j = JSON.parse(STDIN.read) rescue {}
+            s = (j.dig("workspace","schemes") || []).find{|x| x =~ /App/i}
+            puts(s || "App")
+          ' <<< "$SCHEME_JSON")
           echo "Using scheme: $SCHEME"
 
-          rm -rf build_sanity
-          mkdir -p build_sanity
-
+          # Build to iOS Simulator to avoid signing
           set +e
           xcodebuild \
             -workspace ios/App/App.xcworkspace \
             -scheme "$SCHEME" \
             -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_STYLE=Manual \
             SWIFT_VERSION=5.0 \
             IPHONEOS_DEPLOYMENT_TARGET=14.0 \
             ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
-            ENABLE_BITCODE=NO \
-            build | tee build_sanity/log.txt
-          BUILD_STATUS=$?
+            ONLY_ACTIVE_ARCH=NO \
+            -UseNewBuildSystem=YES \
+            clean build | tee /tmp/sanity_build.log
+          BUILD_STATUS=${PIPESTATUS[0]}
           set -e
 
-          echo "=== FIRST 30 lines matching 'error:' ==="
-          grep -nE "error:" -m 30 build_sanity/log.txt || true
-          echo "=== FIRST 10 lines with '❌' ==="
-          grep -n "❌" -m 10 build_sanity/log.txt || true
-          echo "=== TAIL 120 lines ==="
-          tail -n 120 build_sanity/log.txt || true
+          echo "=== FIRST 30 lines matching 'error:' ===" || true
+          grep -i -n 'error:' /tmp/sanity_build.log | head -30 || true
+          echo "=== FIRST 10 lines with '❌' ===" || true
+          grep -n '❌' /tmp/sanity_build.log | head -10 || true
+          echo "=== TAIL 120 lines ===" || true
+          tail -120 /tmp/sanity_build.log || true
+
+          # Upload full log for inspection
+          mkdir -p artifacts && cp /tmp/sanity_build.log artifacts/sanity_build.log
+          echo "sanity_build.log" > artifacts/manifest.txt
 
           exit $BUILD_STATUS
+
+      - name: Upload sanity build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanity-build-log
+          path: artifacts/sanity_build.log
 
       # --- Resolve profile UUID + dist identity ---
       - name: Resolve profile UUID + dist identity
@@ -446,12 +387,8 @@ PY
             -workspace ios/App/App.xcworkspace \
             -scheme "$SCHEME" \
             -configuration Release \
-            -destination 'generic/platform=iOS' \
+            -destination "generic/platform=iOS" \
             -archivePath "$ARCHIVE_PATH" \
-            SWIFT_VERSION=5.0 \
-            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
-            ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
-            ENABLE_BITCODE=NO \
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=YES \
             CODE_SIGN_STYLE=Manual \
@@ -460,6 +397,11 @@ PY
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
             CODE_SIGN_IDENTITY="$DIST_IDENTITY" \
             OTHER_CODE_SIGN_FLAGS="--keychain $HOME/Library/Keychains/signing_temp.keychain-db" \
+            SWIFT_VERSION=5.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
+            ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
+            ONLY_ACTIVE_ARCH=NO \
+            -UseNewBuildSystem=YES \
             archive | tee archive_log.txt
 
           echo "Archive finished: $ARCHIVE_PATH"
