@@ -1,12 +1,13 @@
 platform :ios, '14.0'
 use_modular_headers!
+inhibit_all_warnings!
 
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
 target 'App' do
   capacitor_pods
   pod 'CapacitorCommunityAdmob', :path => '../../node_modules/@capacitor-community/admob'
-  pod 'Google-Mobile-Ads-SDK', '~> 12.12'
+  pod 'Google-Mobile-Ads-SDK', '= 12.12.0'
 end
 
 post_install do |installer|
@@ -14,5 +15,9 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
     end
+  end
+  
+  installer.pods_project.build_configurations.each do |config|
+    config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
   end
 end
