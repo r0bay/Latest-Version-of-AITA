@@ -2,6 +2,7 @@ require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
 platform :ios, '14.0'
 use_frameworks!
+use_modular_headers!
 
 # Lock Pod repo CDN (prevents transient pod index issues)
 source 'https://cdn.cocoapods.org/'
@@ -19,8 +20,8 @@ end
 
 target 'App' do
   capacitor_pods
-  # Add your Pods here
-  # Google-Mobile-Ads-SDK is pulled by CapacitorCommunityAdmob (12.12.0)
+  # DO NOT pin Google-Mobile-Ads-SDK here. It is pulled in by CapacitorCommunityAdmob (12.12.0).
+  # Other pods managed by Capacitor via Podfile generated hooks.
 end
 
 post_install do |installer|
