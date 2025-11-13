@@ -30,15 +30,16 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Clean & sync Capacitor iOS and install pods (deterministic) ---
-      - name: Clean & sync Capacitor iOS and install pods (deterministic)
+      # --- Clean & sync Capacitor iOS and install pods (deterministic + prebuild Pods) ---
+      - name: Clean & sync Capacitor iOS and install pods (deterministic + prebuild Pods)
         run: |
           set -euo pipefail
+
           # Start clean
           rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
           rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
 
-          # Ensure node_modules (so node_modules/@capacitor/ios exists)
+          # Ensure node_modules is present (so node_modules/@capacitor/ios exists)
           if [ ! -d node_modules ]; then
             npm ci
           fi
@@ -46,7 +47,7 @@ jobs:
           # Sync Capacitor (copies web assets + regenerates ios/App)
           npx cap sync ios
 
-          # Bundler-pinned CocoaPods (uses Gemfile if present)
+          # Install CocoaPods (Bundler if Gemfile exists)
           if [ -f Gemfile ]; then
             bundle config set path 'vendor/bundle'
             bundle install --jobs 4
@@ -55,9 +56,33 @@ jobs:
             pod install --project-directory=ios/App --repo-update --clean-install --verbose
           fi
 
-          # Show resulting workspace schemes
+          # Sanity: list workspace targets/schemes
           xcodebuild -workspace ios/App/App.xcworkspace -list
-          echo "✓ Synced Capacitor and installed pods"
+
+          # *** CRITICAL: Prebuild Pods first (surfaces headers/modules issues early) ***
+          set +e
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme Pods-App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            -UseNewBuildSystem=YES | tee /tmp/pods_prebuild.log
+          PODS_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          echo "=== FIRST 40 'error:' from Pods prebuild ===" || true
+          grep -i -n 'error:' /tmp/pods_prebuild.log | head -40 || true
+
+          if [ "$PODS_STATUS" -ne 0 ]; then
+            echo "Pods prebuild failed."
+            exit $PODS_STATUS
+          fi
+
+          echo "✓ Synced Capacitor, installed pods, and prebuilt Pods"
 
       # --- Ensure shared Xcode scheme "App" exists ---
       - name: Verify shared Xcode scheme
@@ -287,7 +312,7 @@ PY
           SCHEME=$(ruby -e '
             require "json"
             j = JSON.parse(STDIN.read) rescue {}
-            s = (j.dig("workspace","schemes") || []).find{|x| x =~ /App/i}
+            s = (j.dig("workspace","schemes") || []).find{|x| x =~ /^App$/i } || (j.dig("workspace","schemes") || []).find{|x| x =~ /App/i }
             puts(s || "App")
           ' <<< "$SCHEME_JSON")
           echo "Using scheme: $SCHEME"
@@ -311,9 +336,9 @@ PY
           BUILD_STATUS=${PIPESTATUS[0]}
           set -e
 
-          echo "=== FIRST 30 lines matching 'error:' ===" || true
+          echo "=== FIRST 30 'error:' lines ===" || true
           grep -i -n 'error:' /tmp/sanity_build.log | head -30 || true
-          echo "=== FIRST 10 lines with '❌' ===" || true
+          echo "=== FIRST 10 '❌' lines ===" || true
           grep -n '❌' /tmp/sanity_build.log | head -10 || true
           echo "=== TAIL 120 lines ===" || true
           tail -120 /tmp/sanity_build.log || true
@@ -324,6 +349,7 @@ PY
 
       - name: Upload sanity build log
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: sanity-build-log
           path: artifacts/sanity_build.log
