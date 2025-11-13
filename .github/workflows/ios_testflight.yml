@@ -39,18 +39,16 @@ jobs:
           rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
           rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
 
-          # Ensure node_modules + the helper exists
-          if [ ! -d node_modules ]; then
-            npm ci
-          fi
-          if [ ! -f "node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
+          # Ensure node_modules + helper
+          if [ ! -d node_modules ]; then npm ci; fi
+          if [ ! -f node_modules/@capacitor/ios/scripts/pods_helpers.rb ]; then
             npm i @capacitor/ios@^6 --save-exact
           fi
 
-          # Re-sync Capacitor (regenerates ios/App and Podfile references)
+          # Re-sync Capacitor
           npx cap sync ios
 
-          # Install Pods (Bundler if Gemfile exists)
+          # Install pods (Bundler if present)
           if [ -f Gemfile ]; then
             bundle config set path 'vendor/bundle'
             bundle install --jobs 4
@@ -285,10 +283,9 @@ PY
       - name: Compile sanity build (simulator, no signing)
         run: |
           set -euo pipefail
-
           WS="ios/App/App.xcworkspace"
 
-          # Detect scheme (prefer exact 'App', else first)
+          # Detect scheme: prefer exact "App"
           SCHEME="$(ruby -e '
             require "json"
             w = ARGV[0]
@@ -302,13 +299,7 @@ PY
               puts ""
             end
           ' "$WS")"
-
-          if [ -z "$SCHEME" ]; then
-            echo "No scheme found in workspace."
-            xcodebuild -workspace "$WS" -list
-            exit 1
-          fi
-
+          [ -n "$SCHEME" ] || { echo "No scheme found"; xcodebuild -workspace "$WS" -list; exit 1; }
           echo "Using scheme: $SCHEME"
 
           set +e
@@ -321,9 +312,11 @@ PY
             ONLY_ACTIVE_ARCH=NO \
             SWIFT_VERSION=5.0 \
             IPHONEOS_DEPLOYMENT_TARGET=14.0 \
+            EXCLUDED_ARCHS=arm64 \
             ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            CLANG_ENABLE_MODULES=YES \
             -UseNewBuildSystem=YES \
             build | tee /tmp/sanity_build.log
           STATUS=${PIPESTATUS[0]}
