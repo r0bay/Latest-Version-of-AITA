@@ -39,6 +39,11 @@ jobs:
           rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
           rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
 
+          # Force Xcode project to iOS 15.0 (match Pods)
+          PBX="ios/App/App.xcodeproj/project.pbxproj"
+          # bump any lingering 14.0 to 15.0
+          sed -i '' -e 's/IPHONEOS_DEPLOYMENT_TARGET = 14.0;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' "$PBX" || true
+
           # Ensure node_modules + helper
           if [ ! -d node_modules ]; then npm ci; fi
           if [ ! -f node_modules/@capacitor/ios/scripts/pods_helpers.rb ]; then
@@ -285,7 +290,6 @@ PY
           set -euo pipefail
           WS="ios/App/App.xcworkspace"
 
-          # Detect scheme: prefer exact "App"
           SCHEME="$(ruby -e '
             require "json"
             w = ARGV[0]
@@ -311,7 +315,7 @@ PY
             -destination "generic/platform=iOS Simulator" \
             ONLY_ACTIVE_ARCH=NO \
             SWIFT_VERSION=5.0 \
-            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
             EXCLUDED_ARCHS=arm64 \
             ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
             CODE_SIGNING_ALLOWED=NO \

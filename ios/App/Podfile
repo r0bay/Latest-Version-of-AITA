@@ -1,4 +1,4 @@
-platform :ios, '14.0'
+platform :ios, '15.0'
 use_frameworks! :linkage => :static
 install! 'cocoapods', :deterministic_uuids => true
 inhibit_all_warnings!
@@ -10,7 +10,7 @@ target 'App' do
 end
 
 post_install do |installer|
-  assertDeploymentTarget(installer, '14.0')
+  assertDeploymentTarget(installer, '15.0')
 
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
@@ -20,9 +20,9 @@ post_install do |installer|
       s['ONLY_ACTIVE_ARCH'] = 'NO'
       s['CODE_SIGNING_ALLOWED'] = 'NO'
       s['CODE_SIGNING_REQUIRED'] = 'NO'
-      # Critical for CI on Apple Silicon runners: avoid arm64 simulator pains
-      s['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
       s['CLANG_ENABLE_MODULES'] = 'YES'
+      # Apple Silicon CI: avoid arm64 simulator headaches
+      s['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
   end
 end
