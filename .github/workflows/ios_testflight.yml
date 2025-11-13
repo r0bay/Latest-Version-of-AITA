@@ -30,24 +30,24 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Clean & sync Capacitor iOS and install pods (deterministic + prebuild Pods) ---
-      - name: Clean & sync Capacitor iOS and install pods (deterministic + prebuild Pods)
+      # --- Clean & sync Capacitor iOS and install pods (deterministic) ---
+      - name: Clean & sync Capacitor iOS and install pods (deterministic)
         run: |
           set -euo pipefail
 
-          # Start clean
+          # Clean native state
           rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
           rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
 
-          # Ensure node_modules is present (so node_modules/@capacitor/ios exists)
+          # Ensure node_modules exists
           if [ ! -d node_modules ]; then
             npm ci
           fi
 
-          # Sync Capacitor (copies web assets + regenerates ios/App)
+          # Re-sync Capacitor (regenerates ios/App)
           npx cap sync ios
 
-          # Install CocoaPods (Bundler if Gemfile exists)
+          # Install Pods (Bundler if Gemfile exists)
           if [ -f Gemfile ]; then
             bundle config set path 'vendor/bundle'
             bundle install --jobs 4
@@ -56,22 +56,64 @@ jobs:
             pod install --project-directory=ios/App --repo-update --clean-install --verbose
           fi
 
-          # Sanity: list workspace targets/schemes
+          # List to verify
           xcodebuild -workspace ios/App/App.xcworkspace -list
+          echo "✓ Synced Capacitor and installed pods"
 
-          # *** CRITICAL: Prebuild Pods first (surfaces headers/modules issues early) ***
+      # --- Prebuild CocoaPods (robust: scheme or alltargets) ---
+      - name: Prebuild CocoaPods (robust: scheme or alltargets)
+        run: |
+          set -euo pipefail
+
+          PODS_PROJ="ios/App/Pods/Pods.xcodeproj"
+          if [ ! -f "$PODS_PROJ" ]; then
+            echo "Pods project not found at $PODS_PROJ"
+            exit 1
+          fi
+
+          echo "=== Listing Pods schemes ==="
+          SCHEMES_JSON="$(xcodebuild -project "$PODS_PROJ" -list -json || true)"
+          echo "$SCHEMES_JSON" | head -200
+
+          # Try to pick a Pods scheme: prefer Pods-App, else any, else fallback to -alltargets
+          PODS_SCHEME="$(ruby -e '
+            require "json"
+            j = JSON.parse(STDIN.read) rescue {}
+            ss = (j.dig("project","schemes") || [])
+            s  = ss.find{|x| x =~ /^Pods-App$/ } || ss.find{|x| x =~ /^Pods-App/i } || ss.first
+            puts(s.to_s)
+          ' <<< "$SCHEMES_JSON")"
+
+          echo "Detected Pods scheme: ${PODS_SCHEME:-<none>}"
+
           set +e
-          xcodebuild \
-            -workspace ios/App/App.xcworkspace \
-            -scheme Pods-App \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -destination "generic/platform=iOS Simulator" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            ONLY_ACTIVE_ARCH=NO \
-            -UseNewBuildSystem=YES | tee /tmp/pods_prebuild.log
-          PODS_STATUS=${PIPESTATUS[0]}
+          if [ -n "$PODS_SCHEME" ]; then
+            # Build using the discovered Pods scheme
+            xcodebuild \
+              -project "$PODS_PROJ" \
+              -scheme "$PODS_SCHEME" \
+              -configuration Release \
+              -sdk iphonesimulator \
+              -destination "generic/platform=iOS Simulator" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              ONLY_ACTIVE_ARCH=NO \
+              -UseNewBuildSystem=YES | tee /tmp/pods_prebuild.log
+            PODS_STATUS=${PIPESTATUS[0]}
+          else
+            # Fallback: build ALL Pods targets (covers cases with no shared schemes)
+            xcodebuild \
+              -project "$PODS_PROJ" \
+              -configuration Release \
+              -sdk iphonesimulator \
+              -destination "generic/platform=iOS Simulator" \
+              -alltargets \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              ONLY_ACTIVE_ARCH=NO \
+              -UseNewBuildSystem=YES | tee /tmp/pods_prebuild.log
+            PODS_STATUS=${PIPESTATUS[0]}
+          fi
           set -e
 
           echo "=== FIRST 40 'error:' from Pods prebuild ===" || true
@@ -82,7 +124,7 @@ jobs:
             exit $PODS_STATUS
           fi
 
-          echo "✓ Synced Capacitor, installed pods, and prebuilt Pods"
+          echo "✓ Pods prebuild succeeded"
 
       # --- Ensure shared Xcode scheme "App" exists ---
       - name: Verify shared Xcode scheme
