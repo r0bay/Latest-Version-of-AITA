@@ -30,8 +30,8 @@ jobs:
             sudo gem install fastlane --no-document
           fi
 
-      # --- Clean & sync Capacitor iOS and install pods (deterministic) ---
-      - name: Clean & sync Capacitor iOS and install pods (deterministic)
+      # --- Clean & sync Capacitor iOS and install pods (official helper) ---
+      - name: Clean & sync Capacitor iOS and install pods (official helper)
         run: |
           set -euo pipefail
 
@@ -39,12 +39,15 @@ jobs:
           rm -rf ios/App/Pods ios/App/Podfile.lock ios/App/App.xcworkspace
           rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
 
-          # Ensure node_modules exists
+          # Ensure node_modules + the helper exists
           if [ ! -d node_modules ]; then
             npm ci
           fi
+          if [ ! -f "node_modules/@capacitor/ios/scripts/pods_helpers.rb" ]; then
+            npm i @capacitor/ios@^6 --save-exact
+          fi
 
-          # Re-sync Capacitor (regenerates ios/App)
+          # Re-sync Capacitor (regenerates ios/App and Podfile references)
           npx cap sync ios
 
           # Install Pods (Bundler if Gemfile exists)
@@ -56,75 +59,9 @@ jobs:
             pod install --project-directory=ios/App --repo-update --clean-install --verbose
           fi
 
-          # List to verify
+          # Verify schemes
           xcodebuild -workspace ios/App/App.xcworkspace -list
           echo "✓ Synced Capacitor and installed pods"
-
-      # --- Prebuild CocoaPods (robust: scheme or alltargets) ---
-      - name: Prebuild CocoaPods (robust: scheme or alltargets)
-        run: |
-          set -euo pipefail
-
-          PODS_PROJ="ios/App/Pods/Pods.xcodeproj"
-          if [ ! -f "$PODS_PROJ" ]; then
-            echo "Pods project not found at $PODS_PROJ"
-            exit 1
-          fi
-
-          echo "=== Listing Pods schemes ==="
-          SCHEMES_JSON="$(xcodebuild -project "$PODS_PROJ" -list -json || true)"
-          echo "$SCHEMES_JSON" | head -200
-
-          # Try to pick a Pods scheme: prefer Pods-App, else any, else fallback to -alltargets
-          PODS_SCHEME="$(ruby -e '
-            require "json"
-            j = JSON.parse(STDIN.read) rescue {}
-            ss = (j.dig("project","schemes") || [])
-            s  = ss.find{|x| x =~ /^Pods-App$/ } || ss.find{|x| x =~ /^Pods-App/i } || ss.first
-            puts(s.to_s)
-          ' <<< "$SCHEMES_JSON")"
-
-          echo "Detected Pods scheme: ${PODS_SCHEME:-<none>}"
-
-          set +e
-          if [ -n "$PODS_SCHEME" ]; then
-            # Build using the discovered Pods scheme
-            xcodebuild \
-              -project "$PODS_PROJ" \
-              -scheme "$PODS_SCHEME" \
-              -configuration Release \
-              -sdk iphonesimulator \
-              -destination "generic/platform=iOS Simulator" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              ONLY_ACTIVE_ARCH=NO \
-              -UseNewBuildSystem=YES | tee /tmp/pods_prebuild.log
-            PODS_STATUS=${PIPESTATUS[0]}
-          else
-            # Fallback: build ALL Pods targets (covers cases with no shared schemes)
-            xcodebuild \
-              -project "$PODS_PROJ" \
-              -configuration Release \
-              -sdk iphonesimulator \
-              -destination "generic/platform=iOS Simulator" \
-              -alltargets \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              ONLY_ACTIVE_ARCH=NO \
-              -UseNewBuildSystem=YES | tee /tmp/pods_prebuild.log
-            PODS_STATUS=${PIPESTATUS[0]}
-          fi
-          set -e
-
-          echo "=== FIRST 40 'error:' from Pods prebuild ===" || true
-          grep -i -n 'error:' /tmp/pods_prebuild.log | head -40 || true
-
-          if [ "$PODS_STATUS" -ne 0 ]; then
-            echo "Pods prebuild failed."
-            exit $PODS_STATUS
-          fi
-
-          echo "✓ Pods prebuild succeeded"
 
       # --- Ensure shared Xcode scheme "App" exists ---
       - name: Verify shared Xcode scheme
@@ -344,38 +281,52 @@ PY
             exit 1
           fi
 
-      # --- Compile sanity build (no signing, simulator) ---
-      - name: Compile sanity build (no signing, simulator)
-        shell: bash
+      # --- Compile sanity build (simulator, no signing) ---
+      - name: Compile sanity build (simulator, no signing)
         run: |
           set -euo pipefail
 
-          SCHEME_JSON=$(xcodebuild -workspace ios/App/App.xcworkspace -list -json || true)
-          SCHEME=$(ruby -e '
+          WS="ios/App/App.xcworkspace"
+
+          # Detect scheme (prefer exact 'App', else first)
+          SCHEME="$(ruby -e '
             require "json"
-            j = JSON.parse(STDIN.read) rescue {}
-            s = (j.dig("workspace","schemes") || []).find{|x| x =~ /^App$/i } || (j.dig("workspace","schemes") || []).find{|x| x =~ /App/i }
-            puts(s || "App")
-          ' <<< "$SCHEME_JSON")
+            w = ARGV[0]
+            j = `xcodebuild -workspace "#{w}" -list -json 2>/dev/null`
+            begin
+              data = JSON.parse(j)
+              ss = data.dig("workspace","schemes") || []
+              exact = ss.find{|s| s =~ /^App$/i }
+              puts(exact || ss.first || "")
+            rescue
+              puts ""
+            end
+          ' "$WS")"
+
+          if [ -z "$SCHEME" ]; then
+            echo "No scheme found in workspace."
+            xcodebuild -workspace "$WS" -list
+            exit 1
+          fi
+
           echo "Using scheme: $SCHEME"
 
           set +e
           xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+            -workspace "$WS" \
             -scheme "$SCHEME" \
-            -configuration Release \
+            -configuration Debug \
             -sdk iphonesimulator \
             -destination "generic/platform=iOS Simulator" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_STYLE=Manual \
+            ONLY_ACTIVE_ARCH=NO \
             SWIFT_VERSION=5.0 \
             IPHONEOS_DEPLOYMENT_TARGET=14.0 \
             ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
-            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             -UseNewBuildSystem=YES \
-            clean build | tee /tmp/sanity_build.log
-          BUILD_STATUS=${PIPESTATUS[0]}
+            build | tee /tmp/sanity_build.log
+          STATUS=${PIPESTATUS[0]}
           set -e
 
           echo "=== FIRST 30 'error:' lines ===" || true
@@ -385,16 +336,7 @@ PY
           echo "=== TAIL 120 lines ===" || true
           tail -120 /tmp/sanity_build.log || true
 
-          mkdir -p artifacts && cp /tmp/sanity_build.log artifacts/sanity_build.log
-
-          exit $BUILD_STATUS
-
-      - name: Upload sanity build log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sanity-build-log
-          path: artifacts/sanity_build.log
+          exit $STATUS
 
       # --- Resolve profile UUID + dist identity ---
       - name: Resolve profile UUID + dist identity

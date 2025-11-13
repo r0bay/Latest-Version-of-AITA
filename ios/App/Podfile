@@ -3,15 +3,16 @@ use_frameworks! :linkage => :static
 install! 'cocoapods', :deterministic_uuids => true
 inhibit_all_warnings!
 
+require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
+
 target 'App' do
-  pod 'Capacitor',        :path => '../../node_modules/@capacitor/ios'
-  pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
+  capacitor_pods
 end
 
 post_install do |installer|
+  assertDeploymentTarget(installer, '14.0')
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
-      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       c.build_settings['SWIFT_VERSION'] = '5.0'
       c.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'YES'
       c.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
